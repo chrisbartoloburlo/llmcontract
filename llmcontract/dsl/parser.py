@@ -43,7 +43,7 @@ class _Parser:
     def _read_ident(self) -> str:
         self._skip_ws()
         start = self.pos
-        while self.pos < len(self.src) and (self.src[self.pos].isalnum() or self.src[self.pos] == '_'):
+        while self.pos < len(self.src) and (self.src[self.pos].isalnum() or self.src[self.pos] in ('_', '-')):
             self.pos += 1
         if self.pos == start:
             found = self.src[self.pos] if self.pos < len(self.src) else "EOF"
@@ -55,7 +55,7 @@ class _Parser:
         end = self.pos + len(kw)
         if self.src[self.pos:end] == kw:
             # Make sure it's not a prefix of a longer identifier
-            if end >= len(self.src) or not (self.src[end].isalnum() or self.src[end] == '_'):
+            if end >= len(self.src) or not (self.src[end].isalnum() or self.src[end] in ('_', '-')):
                 return True
         return False
 
