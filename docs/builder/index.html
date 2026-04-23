@@ -1,0 +1,1508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Protocol Builder — llmcontract</title>
+<meta name="description" content="Visually compose session type protocols for LLM agents. Export as DSL strings or Python integration code.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --mb-ink: #121212;
+  --mb-paper: #F1F1F1;
+  --mb-accent: #C4EF7A;
+  --mb-accent-ink: #527200;
+  --mb-hot: #FC4C3B;
+  --mb-ai: oklch(0.65 0.15 280);
+  --bg-deep: var(--mb-paper);
+  --bg-surface: #E6E6E6;
+  --bg-elevated: #DBDBDB;
+  --bg-card: #D0D0D0;
+  --border: rgba(18, 18, 18, 0.15);
+  --border-bright: rgba(18, 18, 18, 0.30);
+  --text-primary: var(--mb-ink);
+  --text-secondary: rgba(18, 18, 18, 0.55);
+  --text-dim: rgba(18, 18, 18, 0.32);
+  --accent-send: var(--mb-accent-ink);
+  --accent-send-dim: rgba(196, 239, 122, 0.30);
+  --accent-recv: var(--mb-ai);
+  --accent-recv-dim: rgba(140, 80, 220, 0.10);
+  --accent-error: var(--mb-hot);
+  --accent-error-dim: rgba(252, 76, 59, 0.10);
+  --accent-warn: #9a6700;
+  --accent-warn-dim: rgba(154, 103, 0, 0.08);
+  --accent-neutral: rgba(18, 18, 18, 0.40);
+  --font-mono: 'Space Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif;
+  --radius: 4px;
+  --radius-lg: 8px;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  line-height: 1.65;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 60px 60px;
+  opacity: 0.12;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Nav ─── */
+nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: rgba(241, 241, 241, 0.88);
+  backdrop-filter: blur(16px);
+  border-bottom: 1.5px solid rgba(18, 18, 18, 0.12);
+  padding: 0 24px;
+}
+nav .nav-inner {
+  max-width: 1400px; margin: 0 auto;
+  display: flex; align-items: center; justify-content: space-between; height: 56px;
+}
+nav .logo {
+  font-family: var(--font-mono); font-weight: 700; font-size: 15px;
+  color: var(--text-primary); text-decoration: none;
+}
+nav .logo span { color: var(--mb-hot); }
+nav .nav-links { display: flex; gap: 28px; list-style: none; }
+nav .nav-links a {
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--text-secondary); text-decoration: none;
+  transition: color 0.2s;
+}
+nav .nav-links a:hover, nav .nav-links a.active { color: var(--text-primary); }
+
+/* ── Builder Layout ─── */
+.builder-wrap {
+  padding-top: 72px;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 1;
+}
+
+.builder-header {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.builder-header h1 {
+  font-family: var(--font-body);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.builder-header .subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.builder-grid {
+  display: grid;
+  grid-template-columns: 280px 1fr 380px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.panel {
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.panel:last-child { border-right: none; }
+
+.panel-header {
+  padding: 12px 16px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.panel-body::-webkit-scrollbar { width: 4px; }
+.panel-body::-webkit-scrollbar-track { background: transparent; }
+.panel-body::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 2px; }
+
+/* ── Tool Input ─── */
+.tool-input-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.tool-input-row input {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.tool-input-row input:focus {
+  border-color: var(--mb-accent-ink);
+}
+
+.tool-input-row input::placeholder { color: var(--text-dim); }
+
+/* ── Buttons ─── */
+.btn-sm {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 5px 12px;
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.btn-sm:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.btn-sm.primary {
+  background: var(--mb-accent);
+  color: var(--mb-accent-ink);
+  border-color: var(--mb-accent-ink);
+}
+.btn-sm.primary:hover { filter: brightness(0.95); }
+.btn-sm:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* ── Tool List ─── */
+.tool-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  margin-bottom: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.tool-item:hover { border-color: var(--mb-accent-ink); background: var(--accent-send-dim); }
+.tool-item.disabled { opacity: 0.35; cursor: not-allowed; }
+.tool-item.disabled:hover { border-color: var(--border); background: transparent; }
+.tool-item .plus { color: var(--text-dim); font-size: 14px; }
+.tool-item:hover .plus { color: var(--mb-accent-ink); }
+
+/* ── Section Divider ─── */
+.section-divider {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 16px 0 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+/* ── Construct Buttons ─── */
+.construct-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  margin-bottom: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: left;
+}
+.construct-btn:hover { border-color: var(--border-bright); background: var(--bg-surface); }
+.construct-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.construct-btn .prefix {
+  font-weight: 700;
+  min-width: 28px;
+}
+.construct-btn .prefix.send { color: var(--accent-send); }
+.construct-btn .prefix.recv { color: var(--accent-recv); }
+.construct-btn .prefix.rec { color: var(--accent-warn); }
+
+/* ── Insert Target Indicator ─── */
+.insert-target-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  margin-bottom: 10px;
+  border-radius: var(--radius);
+  background: rgba(140, 80, 220, 0.08);
+  border: 1px solid rgba(140, 80, 220, 0.25);
+  font-size: 11px;
+  color: var(--accent-recv);
+}
+.insert-target-badge .clear-target {
+  margin-left: auto;
+  font-size: 10px;
+  text-decoration: underline;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.insert-target-badge .clear-target:hover { opacity: 1; }
+
+/* ── Step Cards ─── */
+.step-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 6px;
+  overflow: hidden;
+}
+
+.step-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.step-row.send-row { background: var(--accent-send-dim); }
+.step-row.recv-row { background: var(--accent-recv-dim); }
+.step-row.rec-row { background: var(--accent-warn-dim); }
+
+.step-row .direction {
+  font-weight: 700;
+  min-width: 12px;
+}
+.step-row .direction.send { color: var(--accent-send); }
+.step-row .direction.recv { color: var(--accent-recv); }
+
+.step-row select, .step-row input[type="text"] {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  min-width: 0;
+}
+.step-row select { cursor: pointer; }
+
+.step-row .actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.icon-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: 2px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.icon-btn:hover { color: var(--text-primary); }
+.icon-btn.danger:hover { color: var(--accent-error); }
+.icon-btn.branch:hover { color: var(--accent-send); }
+.icon-btn.branch-recv:hover { color: var(--accent-recv); }
+.icon-btn.target-active { color: var(--accent-recv); }
+
+.paired-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* ── Choice Card ─── */
+.choice-card {
+  border: 2px solid var(--border-bright);
+  border-radius: var(--radius-lg);
+  margin-bottom: 6px;
+  overflow: hidden;
+}
+.choice-card.send-choice { border-color: rgba(82, 114, 0, 0.35); }
+.choice-card.recv-choice { border-color: rgba(140, 80, 220, 0.35); }
+
+.choice-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg-surface);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.choice-header .label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+}
+
+.choice-footer {
+  padding: 2px 10px;
+  background: var(--bg-surface);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* ── Branch Card ─── */
+.branch-card {
+  margin: 6px 8px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  transition: border-color 0.15s;
+}
+.branch-card.active-target {
+  border-color: rgba(140, 80, 220, 0.5);
+}
+
+.branch-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.branch-header select, .branch-header input[type="text"] {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  min-width: 0;
+}
+
+.branch-body {
+  padding: 4px 8px 8px;
+}
+
+.branch-steps {
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+  margin-left: 4px;
+}
+
+.branch-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-style: italic;
+  padding: 2px 4px;
+}
+.branch-hint.active { color: var(--accent-recv); }
+
+/* ── Rec step ─── */
+.rec-ref {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid rgba(154, 103, 0, 0.2);
+  border-radius: var(--radius);
+  background: var(--accent-warn-dim);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+/* ── Empty state ─── */
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 200px;
+  border: 2px dashed var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--text-dim);
+  font-size: 13px;
+  text-align: center;
+  padding: 24px;
+}
+
+.end-marker {
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* ── Output Panel ─── */
+.output-section {
+  margin-bottom: 16px;
+}
+
+.output-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.output-block {
+  padding: 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-all;
+  white-space: pre-wrap;
+  overflow-x: auto;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* ── Syntax Tokens ─── */
+.tok-send { color: var(--accent-send); font-weight: 700; }
+.tok-recv { color: var(--accent-recv); font-weight: 700; }
+.tok-kw { color: var(--accent-warn); font-style: italic; }
+.tok-op { color: var(--text-dim); }
+.tok-label { color: var(--text-primary); }
+
+/* ── FSM Preview ─── */
+.fsm-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.fsm-node {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: white;
+  flex-shrink: 0;
+}
+.fsm-node.end { border-width: 2px; }
+.fsm-arrow { color: var(--text-dim); font-size: 11px; padding-top: 3px; }
+.fsm-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+.fsm-label.send { background: var(--accent-send-dim); color: var(--accent-send); }
+.fsm-label.recv { background: var(--accent-recv-dim); color: var(--accent-recv); }
+.fsm-label.loop { background: var(--accent-warn-dim); color: var(--accent-warn); }
+.fsm-branch-col { display: flex; flex-direction: column; gap: 2px; }
+
+/* ── Python code tokens ─── */
+.py-kw { color: var(--accent-warn); }
+.py-str { color: var(--accent-send); }
+.py-cm { color: var(--text-dim); font-style: italic; }
+.py-fn { color: var(--accent-recv); }
+
+/* ── Copy feedback ─── */
+.copy-btn { transition: all 0.15s; }
+.copy-btn.copied { color: var(--accent-send) !important; }
+
+/* ── Responsive ─── */
+@media (max-width: 900px) {
+  .builder-grid { grid-template-columns: 1fr; }
+  .panel { border-right: none; border-bottom: 1px solid var(--border); }
+  .builder-wrap { height: auto; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a href="../" class="logo">llmcontract<span>.</span></a>
+    <ul class="nav-links">
+      <li><a href="../#demo">Demo</a></li>
+      <li><a href="../#dsl">DSL</a></li>
+      <li><a href="./" class="active">Builder</a></li>
+      <li><a href="../#research">Research</a></li>
+      <li><a href="https://github.com/chrisbartoloburlo/llmcontract" target="_blank">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<div class="builder-wrap">
+  <div class="builder-header">
+    <div>
+      <h1>Protocol Builder</h1>
+      <p class="subtitle">Define tools, compose a session type protocol, export code.</p>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn-sm" onclick="loadPreset('agent-loop')">Preset: Agent Loop</button>
+      <button class="btn-sm" onclick="loadPreset('echo-sum')">Preset: echo + get-sum</button>
+      <button class="btn-sm" onclick="clearAll()">Clear All</button>
+    </div>
+  </div>
+
+  <div class="builder-grid">
+
+    <!-- ═══ LEFT: Tool Palette ═══ -->
+    <div class="panel">
+      <div class="panel-header">Tools & Constructs</div>
+      <div class="panel-body" id="palette">
+
+        <div class="tool-input-row">
+          <input type="text" id="tool-name-input" placeholder="Tool name (e.g. get-weather)" onkeydown="if(event.key==='Enter')addTool()">
+          <button class="btn-sm primary" onclick="addTool()">Add</button>
+        </div>
+
+        <div id="insert-target-display"></div>
+        <div id="tool-list"></div>
+
+        <div class="section-divider">Protocol Constructs</div>
+        <div id="construct-buttons"></div>
+      </div>
+    </div>
+
+    <!-- ═══ MIDDLE: Protocol Sequence ═══ -->
+    <div class="panel">
+      <div class="panel-header">
+        Protocol Sequence
+        <button class="btn-sm" onclick="clearSteps()">Clear</button>
+      </div>
+      <div class="panel-body" id="sequence-panel">
+        <div class="empty-state" id="empty-msg">Click tools or constructs to build your protocol</div>
+        <div id="step-list"></div>
+        <div class="end-marker" id="end-marker" style="display:none">end</div>
+      </div>
+    </div>
+
+    <!-- ═══ RIGHT: Output ═══ -->
+    <div class="panel">
+      <div class="panel-header">Output</div>
+      <div class="panel-body">
+
+        <div class="output-section">
+          <div class="output-label">
+            Session Type DSL
+            <button class="btn-sm copy-btn" id="copy-dsl-btn" onclick="copyDSL()">Copy</button>
+          </div>
+          <div class="output-block" id="dsl-output">end</div>
+        </div>
+
+        <div class="output-section">
+          <div class="output-label">State Machine</div>
+          <div class="output-block" id="fsm-output" style="font-size:11px;">
+            <span style="color:var(--text-dim);font-style:italic">Add steps to see the state machine</span>
+          </div>
+        </div>
+
+        <div class="output-section">
+          <div class="output-label">
+            Python Integration
+            <button class="btn-sm copy-btn" id="copy-py-btn" onclick="copyPython()">Copy</button>
+          </div>
+          <div class="output-block" id="python-output" style="max-height:250px;"></div>
+        </div>
+
+        <button class="btn-sm" style="width:100%;" onclick="downloadPython()">Download .py</button>
+        <div style="margin-top:12px;">
+          <button class="btn-sm" style="width:100%;" onclick="shareURL()">Copy shareable URL</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// Protocol Builder — Standalone vanilla JS implementation
+// ═══════════════════════════════════════════════════════════════
+
+let nextId = 0;
+const uid = () => `s${++nextId}`;
+
+// ── State ──────────────────────────────────────────────────────
+let tools = [];        // [{name: string}]
+let steps = [];        // ProtocolStep[]
+let insertTarget = null; // {choiceStepId, branchId} | null
+
+// ── Step Types ─────────────────────────────────────────────────
+// { id, type:'action', direction:'send'|'receive', label, pairId?, isRecRef?, recVar? }
+// { id, type:'choice', direction:'send'|'receive', branches:[{id, label, steps}] }
+// { id, type:'recursion', recVar }
+
+// ── Helpers ────────────────────────────────────────────────────
+
+function stepsToProtocol(steps) {
+  if (steps.length === 0) return 'end';
+  const parts = [];
+  for (const step of steps) {
+    if (step.type === 'action') {
+      if (step.isRecRef && step.recVar) { parts.push(step.recVar); }
+      else {
+        const p = step.direction === 'send' ? '!' : '?';
+        parts.push(`${p}${step.label}`);
+      }
+    } else if (step.type === 'choice' && step.branches) {
+      const p = step.direction === 'send' ? '!' : '?';
+      const bs = step.branches.map(b => {
+        const inner = stepsToProtocol(b.steps);
+        return inner === 'end' ? b.label : `${b.label}.${inner}`;
+      });
+      parts.push(`${p}{${bs.join(', ')}}`);
+    } else if (step.type === 'recursion' && step.recVar) {
+      const inner = stepsToProtocol(steps.slice(steps.indexOf(step) + 1));
+      return `rec ${step.recVar}.${inner}`;
+    }
+  }
+  if (parts.length === 0) return 'end';
+  return parts.join('.') + '.end';
+}
+
+function isTerminated(steps) {
+  if (steps.length === 0) return false;
+  const last = steps[steps.length - 1];
+  if (last.type === 'choice') return true;
+  if (last.type === 'action' && last.isRecRef) return true;
+  return false;
+}
+
+function collectRecVars(steps) {
+  const vars = [];
+  for (const s of steps) {
+    if (s.type === 'recursion' && s.recVar) vars.push(s.recVar);
+    if (s.branches) s.branches.forEach(b => vars.push(...collectRecVars(b.steps)));
+  }
+  return vars;
+}
+
+function collectSendLabels(steps) {
+  const labels = new Set();
+  for (const s of steps) {
+    if (s.type === 'action' && s.direction === 'send' && s.label && !s.isRecRef)
+      labels.add(s.label);
+    if (s.branches) s.branches.forEach(b => collectSendLabels(b.steps).forEach(l => labels.add(l)));
+  }
+  return [...labels];
+}
+
+function deriveReceiveOptions(labels) {
+  const opts = [];
+  labels.forEach(l => { opts.push(l + 'Result'); opts.push(l + 'Error'); });
+  return opts;
+}
+
+function findStep(steps, id) {
+  for (const s of steps) {
+    if (s.id === id) return s;
+    if (s.branches) {
+      for (const b of s.branches) {
+        const f = findStep(b.steps, id);
+        if (f) return f;
+      }
+    }
+  }
+  return null;
+}
+
+function findPairId(steps, stepId) {
+  for (const s of steps) {
+    if (s.id === stepId) return s.pairId;
+    if (s.branches) {
+      for (const b of s.branches) {
+        const f = findPairId(b.steps, stepId);
+        if (f) return f;
+      }
+    }
+  }
+  return undefined;
+}
+
+function updateStepDeep(steps, stepId, updater) {
+  return steps.map(s => {
+    if (s.id === stepId) return updater(s);
+    if (s.branches) return { ...s, branches: s.branches.map(b => ({ ...b, steps: updateStepDeep(b.steps, stepId, updater) })) };
+    return s;
+  });
+}
+
+function removeStepDeep(steps, stepId) {
+  const pairId = findPairId(steps, stepId);
+  const shouldRemove = s => s.id === stepId || (pairId && s.pairId === pairId);
+  const filtered = steps.filter(s => !shouldRemove(s));
+  return filtered.map(s => {
+    if (s.branches) return { ...s, branches: s.branches.map(b => ({ ...b, steps: removeStepDeep(b.steps, stepId) })) };
+    return s;
+  });
+}
+
+function addStepToBranch(steps, choiceStepId, branchId, newStep) {
+  return steps.map(s => {
+    if (s.id === choiceStepId && s.branches) {
+      return { ...s, branches: s.branches.map(b => b.id === branchId ? { ...b, steps: [...b.steps, newStep] } : b) };
+    }
+    if (s.branches) return { ...s, branches: s.branches.map(b => ({ ...b, steps: addStepToBranch(b.steps, choiceStepId, branchId, newStep) })) };
+    return s;
+  });
+}
+
+function isBranchTerminated(steps, choiceStepId, branchId) {
+  for (const s of steps) {
+    if (s.id === choiceStepId && s.branches) {
+      const b = s.branches.find(b => b.id === branchId);
+      return b ? isTerminated(b.steps) : false;
+    }
+    if (s.branches) {
+      for (const b of s.branches) {
+        if (isBranchTerminated(b.steps, choiceStepId, branchId)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function convertPairToChoice(steps, stepId, pairId, direction, branchLabels) {
+  return steps.map(s => {
+    if (s.id === stepId) {
+      return { id: s.id, type: 'choice', direction, branches: branchLabels.map(l => ({ id: uid(), label: l, steps: [] })) };
+    }
+    if (s.pairId === pairId && s.id !== stepId) {
+      const { pairId: _, ...rest } = s;
+      return rest;
+    }
+    if (s.branches) return { ...s, branches: s.branches.map(b => ({ ...b, steps: convertPairToChoice(b.steps, stepId, pairId, direction, branchLabels) })) };
+    return s;
+  });
+}
+
+// ── Target helpers ─────────────────────────────────────────────
+
+function getTargetTerminated() {
+  if (insertTarget) return isBranchTerminated(steps, insertTarget.choiceStepId, insertTarget.branchId);
+  return isTerminated(steps);
+}
+
+function addToTarget(step) {
+  if (insertTarget) {
+    steps = addStepToBranch(steps, insertTarget.choiceStepId, insertTarget.branchId, step);
+  } else {
+    steps.push(step);
+  }
+  render();
+}
+
+function getTargetLabel() {
+  if (!insertTarget) return null;
+  const find = (steps) => {
+    for (const s of steps) {
+      if (s.id === insertTarget.choiceStepId && s.branches) {
+        const b = s.branches.find(b => b.id === insertTarget.branchId);
+        return b ? b.label : null;
+      }
+      if (s.branches) { for (const b of s.branches) { const f = find(b.steps); if (f) return f; } }
+    }
+    return null;
+  };
+  return find(steps);
+}
+
+// ── Actions ────────────────────────────────────────────────────
+
+function addTool() {
+  const input = document.getElementById('tool-name-input');
+  const name = input.value.trim();
+  if (!name || tools.find(t => t.name === name)) return;
+  tools.push({ name });
+  input.value = '';
+  render();
+}
+
+function removeTool(name) {
+  tools = tools.filter(t => t.name !== name);
+  render();
+}
+
+function addToolAsSteps(toolName) {
+  if (getTargetTerminated()) return;
+  const pair = uid();
+  const send = { id: uid(), type: 'action', direction: 'send', label: toolName, pairId: pair };
+  const recv = { id: uid(), type: 'action', direction: 'receive', label: toolName + 'Result', pairId: pair };
+  if (insertTarget) {
+    steps = addStepToBranch(steps, insertTarget.choiceStepId, insertTarget.branchId, send);
+    steps = addStepToBranch(steps, insertTarget.choiceStepId, insertTarget.branchId, recv);
+  } else {
+    steps.push(send, recv);
+  }
+  render();
+}
+
+function addSendRecvPair() {
+  if (getTargetTerminated()) return;
+  const pair = uid();
+  const send = { id: uid(), type: 'action', direction: 'send', label: 'Action', pairId: pair };
+  const recv = { id: uid(), type: 'action', direction: 'receive', label: 'ActionResult', pairId: pair };
+  addToTarget(send);
+  // Re-add since addToTarget already called render once
+  if (insertTarget) {
+    steps = addStepToBranch(steps, insertTarget.choiceStepId, insertTarget.branchId, recv);
+  } else {
+    steps.push(recv);
+  }
+  render();
+}
+
+function addChoice(direction) {
+  if (getTargetTerminated()) return;
+  const step = { id: uid(), type: 'choice', direction, branches: [{ id: uid(), label: 'BranchA', steps: [] }, { id: uid(), label: 'BranchB', steps: [] }] };
+  addToTarget(step);
+}
+
+function addRecursion() {
+  if (getTargetTerminated()) return;
+  const varName = 'X' + collectRecVars(steps).length;
+  const step = { id: uid(), type: 'recursion', recVar: varName };
+  addToTarget(step);
+}
+
+function addRecRef(varName) {
+  if (getTargetTerminated()) return;
+  const step = { id: uid(), type: 'action', isRecRef: true, recVar: varName };
+  addToTarget(step);
+}
+
+function doConvertToChoice(stepId, pairId, direction, branchLabels) {
+  steps = convertPairToChoice(steps, stepId, pairId, direction, branchLabels);
+  render();
+}
+
+function doRemoveStep(stepId) {
+  steps = removeStepDeep(steps, stepId);
+  render();
+}
+
+function doUpdateLabel(stepId, newLabel) {
+  steps = updateStepDeep(steps, stepId, s => ({ ...s, label: newLabel }));
+  render();
+}
+
+function doUpdatePairLabel(sendId, recvId, newLabel) {
+  steps = updateStepDeep(steps, sendId, s => ({ ...s, label: newLabel }));
+  steps = updateStepDeep(steps, recvId, s => ({ ...s, label: newLabel + 'Result' }));
+  render();
+}
+
+function doUpdateBranchLabel(choiceId, branchId, newLabel) {
+  steps = updateStepDeep(steps, choiceId, s => ({
+    ...s, branches: s.branches.map(b => b.id === branchId ? { ...b, label: newLabel } : b)
+  }));
+  render();
+}
+
+function doAddBranch(choiceId) {
+  steps = updateStepDeep(steps, choiceId, s => ({
+    ...s, branches: [...(s.branches || []), { id: uid(), label: 'Branch' + String.fromCharCode(65 + (s.branches?.length || 0)), steps: [] }]
+  }));
+  render();
+}
+
+function doRemoveBranch(choiceId, branchId) {
+  steps = updateStepDeep(steps, choiceId, s => ({
+    ...s, branches: s.branches.filter(b => b.id !== branchId)
+  }));
+  render();
+}
+
+function setTarget(choiceStepId, branchId) {
+  if (insertTarget && insertTarget.choiceStepId === choiceStepId && insertTarget.branchId === branchId) {
+    insertTarget = null;
+  } else {
+    insertTarget = { choiceStepId, branchId };
+  }
+  render();
+}
+
+function clearSteps() { steps = []; insertTarget = null; render(); }
+function clearAll() { steps = []; tools = []; insertTarget = null; render(); }
+
+// ── Presets ────────────────────────────────────────────────────
+
+function loadPreset(name) {
+  if (name === 'agent-loop') {
+    tools = [{ name: 'any-tool' }];
+    steps = [];
+    const recStep = { id: uid(), type: 'recursion', recVar: 'Loop' };
+    const pair = uid();
+    const send = { id: uid(), type: 'action', direction: 'send', label: 'Request', pairId: pair };
+    const choice = { id: uid(), type: 'choice', direction: 'receive', branches: [
+      { id: uid(), label: 'ToolCall', steps: [
+        { id: uid(), type: 'action', direction: 'send', label: 'ToolResult' },
+        { id: uid(), type: 'action', isRecRef: true, recVar: 'Loop' }
+      ]},
+      { id: uid(), label: 'FinalAnswer', steps: [] }
+    ]};
+    steps = [recStep, send, choice];
+  } else if (name === 'echo-sum') {
+    tools = [{ name: 'echo' }, { name: 'get-sum' }];
+    steps = [];
+    const p1 = uid();
+    const send1 = { id: uid(), type: 'action', direction: 'send', label: 'echo', pairId: p1 };
+    const recv1Choice = { id: uid(), type: 'choice', direction: 'receive', branches: [
+      { id: uid(), label: 'echoResult', steps: (() => {
+        const p2 = uid();
+        const send2 = { id: uid(), type: 'action', direction: 'send', label: 'get-sum', pairId: p2 };
+        const recv2Choice = { id: uid(), type: 'choice', direction: 'receive', branches: [
+          { id: uid(), label: 'get-sumResult', steps: [] },
+          { id: uid(), label: 'get-sumError', steps: [] }
+        ]};
+        return [send2, recv2Choice];
+      })()},
+      { id: uid(), label: 'echoError', steps: [] }
+    ]};
+    steps = [send1, recv1Choice];
+  }
+  insertTarget = null;
+  render();
+}
+
+// ── Rendering ──────────────────────────────────────────────────
+
+function render() {
+  renderToolList();
+  renderInsertTarget();
+  renderConstructButtons();
+  renderStepList();
+  renderDSL();
+  renderFSM();
+  renderPython();
+  updateURL();
+}
+
+function renderToolList() {
+  const el = document.getElementById('tool-list');
+  const terminated = getTargetTerminated();
+  el.innerHTML = tools.map(t => `
+    <div class="tool-item ${terminated ? 'disabled' : ''}" onclick="${terminated ? '' : `addToolAsSteps('${t.name}')`}">
+      <span>${t.name}</span>
+      <span class="actions">
+        <span class="plus">+</span>
+        <button class="icon-btn danger" onclick="event.stopPropagation();removeTool('${t.name}')" title="Remove tool">&times;</button>
+      </span>
+    </div>
+  `).join('');
+}
+
+function renderInsertTarget() {
+  const el = document.getElementById('insert-target-display');
+  if (!insertTarget) { el.innerHTML = ''; return; }
+  const label = getTargetLabel();
+  el.innerHTML = `<div class="insert-target-badge">
+    <span>&#9678;</span> Adding to: <strong>${label}</strong>
+    <span class="clear-target" onclick="insertTarget=null;render()">clear</span>
+  </div>`;
+}
+
+function renderConstructButtons() {
+  const el = document.getElementById('construct-buttons');
+  const disabled = getTargetTerminated();
+  const recVars = collectRecVars(steps);
+
+  let html = `
+    <button class="construct-btn" ${disabled ? 'disabled' : ''} onclick="addSendRecvPair()">
+      <span class="prefix"><span class="send">!</span><span class="recv">?</span></span> Send / Receive Pair
+    </button>
+    <button class="construct-btn" ${disabled ? 'disabled' : ''} onclick="addChoice('send')">
+      <span class="prefix send">!{}</span> Internal Choice
+    </button>
+    <button class="construct-btn" ${disabled ? 'disabled' : ''} onclick="addChoice('receive')">
+      <span class="prefix recv">?{}</span> External Choice
+    </button>
+    <button class="construct-btn" ${disabled ? 'disabled' : ''} onclick="addRecursion()">
+      <span class="prefix rec">rec</span> Recursion
+    </button>
+  `;
+
+  if (recVars.length > 0) {
+    html += recVars.map(v => `
+      <button class="construct-btn" ${disabled ? 'disabled' : ''} onclick="addRecRef('${v}')" style="padding-left:20px">
+        <span class="prefix rec">↻</span> Loop back to ${v}
+      </button>
+    `).join('');
+  }
+
+  el.innerHTML = html;
+}
+
+function renderStepList() {
+  const listEl = document.getElementById('step-list');
+  const emptyEl = document.getElementById('empty-msg');
+  const endEl = document.getElementById('end-marker');
+
+  if (steps.length === 0) {
+    listEl.innerHTML = '';
+    emptyEl.style.display = '';
+    endEl.style.display = 'none';
+    return;
+  }
+
+  emptyEl.style.display = 'none';
+  endEl.style.display = '';
+  listEl.innerHTML = renderSteps(steps, 0);
+}
+
+function renderSteps(steps, depth) {
+  const recvOpts = deriveReceiveOptions(collectSendLabels(window.steps));
+  const rendered = new Set();
+  let html = '';
+
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i];
+    if (rendered.has(s.id)) continue;
+    rendered.add(s.id);
+
+    // Paired send+receive
+    if (s.type === 'action' && s.direction === 'send' && s.pairId && i + 1 < steps.length && steps[i + 1].pairId === s.pairId) {
+      const r = steps[i + 1];
+      rendered.add(r.id);
+      html += renderPairCard(s, r, recvOpts);
+    } else if (s.type === 'action' && s.isRecRef) {
+      html += `<div class="rec-ref">
+        <span style="color:var(--accent-warn)">↻</span>
+        <span>loop → ${s.recVar}</span>
+        <span style="flex:1"></span>
+        <button class="icon-btn danger" onclick="doRemoveStep('${s.id}')">&times;</button>
+      </div>`;
+    } else if (s.type === 'action') {
+      html += renderActionCard(s, recvOpts);
+    } else if (s.type === 'choice') {
+      html += renderChoiceCard(s, depth, recvOpts);
+    } else if (s.type === 'recursion') {
+      html += `<div class="step-card"><div class="step-row rec-row">
+        <span class="direction" style="color:var(--accent-warn);font-weight:700">rec</span>
+        <span>${s.recVar}</span>
+        <span style="color:var(--text-dim)">.</span>
+        <span style="flex:1"></span>
+        <button class="icon-btn danger" onclick="doRemoveStep('${s.id}')">&times;</button>
+      </div></div>`;
+    }
+  }
+  return html;
+}
+
+function renderPairCard(send, recv, recvOpts) {
+  const sendLabel = send.label || 'Action';
+  const toolOpts = tools.map(t => `<option value="${t.name}" ${t.name === send.label ? 'selected' : ''}>${t.name}</option>`).join('');
+  const recvOptHtml = recvOpts.map(r => `<option value="${r}" ${r === recv.label ? 'selected' : ''}>${r}</option>`).join('');
+
+  const sendInput = tools.length > 0
+    ? `<select onchange="doUpdatePairLabel('${send.id}','${recv.id}',this.value)"><option value="${sendLabel}">${sendLabel}</option>${toolOpts}</select>`
+    : `<input type="text" value="${sendLabel}" onchange="doUpdatePairLabel('${send.id}','${recv.id}',this.value)">`;
+
+  const recvInput = recvOpts.length > 0
+    ? `<select onchange="doUpdateLabel('${recv.id}',this.value)"><option value="${recv.label || ''}">${recv.label || 'Select...'}</option>${recvOptHtml}</select>`
+    : `<input type="text" value="${recv.label || ''}" onchange="doUpdateLabel('${recv.id}',this.value)">`;
+
+  // branch labels for convert
+  const branchSend = tools.length > 1
+    ? `[${tools.map(t => `'${t.name}'`).slice(0, 3).join(',')}]`
+    : `['${sendLabel}','${sendLabel}Alt']`;
+  const branchRecv = `['${sendLabel}Result','${sendLabel}Error']`;
+
+  return `<div class="step-card">
+    <div class="step-row send-row">
+      <span class="direction send">!</span>
+      ${sendInput}
+      <span class="actions">
+        <button class="icon-btn branch" onclick="doConvertToChoice('${send.id}','${send.pairId}','send',${branchSend})" title="Convert to !{}">&#9095;</button>
+        <button class="icon-btn danger" onclick="doRemoveStep('${send.id}')" title="Delete pair">&times;</button>
+      </span>
+    </div>
+    <div class="step-row recv-row" style="border-top:1px solid var(--border)">
+      <span class="direction recv">?</span>
+      ${recvInput}
+      <span class="actions">
+        <button class="icon-btn branch-recv" onclick="doConvertToChoice('${recv.id}','${recv.pairId}','receive',${branchRecv})" title="Convert to ?{}">&#9095;</button>
+        <span class="paired-label">paired</span>
+      </span>
+    </div>
+  </div>`;
+}
+
+function renderActionCard(s, recvOpts) {
+  const isSend = s.direction === 'send';
+  const rowClass = isSend ? 'send-row' : 'recv-row';
+  const dirClass = isSend ? 'send' : 'recv';
+  const prefix = isSend ? '!' : '?';
+
+  let input;
+  if (isSend && tools.length > 0) {
+    const opts = tools.map(t => `<option value="${t.name}" ${t.name === s.label ? 'selected' : ''}>${t.name}</option>`).join('');
+    input = `<select onchange="doUpdateLabel('${s.id}',this.value)"><option value="${s.label||''}">${s.label||'Select...'}</option>${opts}</select>`;
+  } else if (!isSend && recvOpts.length > 0) {
+    const opts = recvOpts.map(r => `<option value="${r}" ${r === s.label ? 'selected' : ''}>${r}</option>`).join('');
+    input = `<select onchange="doUpdateLabel('${s.id}',this.value)"><option value="${s.label||''}">${s.label||'Select...'}</option>${opts}</select>`;
+  } else {
+    input = `<input type="text" value="${s.label||''}" onchange="doUpdateLabel('${s.id}',this.value)">`;
+  }
+
+  return `<div class="step-card"><div class="step-row ${rowClass}">
+    <span class="direction ${dirClass}">${prefix}</span>
+    ${input}
+    <button class="icon-btn danger" onclick="doRemoveStep('${s.id}')">&times;</button>
+  </div></div>`;
+}
+
+function renderChoiceCard(s, depth, recvOpts) {
+  const isSend = s.direction === 'send';
+  const cls = isSend ? 'send-choice' : 'recv-choice';
+  const dirClass = isSend ? 'send' : 'recv';
+  const prefix = isSend ? '!' : '?';
+  const label = isSend ? 'Internal' : 'External';
+
+  const siblingLabels = {};
+  (s.branches || []).forEach(b => { siblingLabels[b.id] = (s.branches || []).filter(x => x.id !== b.id).map(x => x.label); });
+
+  const branchHtml = (s.branches || []).map(b => {
+    const isActive = insertTarget && insertTarget.choiceStepId === s.id && insertTarget.branchId === b.id;
+    const terminated = isTerminated(b.steps);
+    const siblings = siblingLabels[b.id] || [];
+
+    // Branch label options
+    const allOptions = isSend ? tools.map(t => t.name) : recvOpts;
+    const options = allOptions.filter(o => !siblings.includes(o));
+    let labelInput;
+    if (options.length > 0) {
+      const opts = options.filter(o => o !== b.label).map(o => `<option value="${o}">${o}</option>`).join('');
+      labelInput = `<select onchange="doUpdateBranchLabel('${s.id}','${b.id}',this.value)"><option value="${b.label}">${b.label}</option>${opts}</select>`;
+    } else {
+      labelInput = `<input type="text" value="${b.label}" onchange="doUpdateBranchLabel('${s.id}','${b.id}',this.value)">`;
+    }
+
+    const stepsHtml = b.steps.length > 0 ? `<div class="branch-steps">${renderSteps(b.steps, depth + 1)}</div>` : '';
+    const hint = terminated
+      ? '<div class="branch-hint">end</div>'
+      : isActive
+        ? '<div class="branch-hint active">Use the palette to add steps here</div>'
+        : '<div class="branch-hint">Click &#9678; to add steps from palette</div>';
+
+    return `<div class="branch-card ${isActive ? 'active-target' : ''}">
+      <div class="branch-header">
+        ${labelInput}
+        <span style="font-size:10px;color:var(--text-dim)">${b.steps.length > 0 ? '(' + b.steps.length + ')' : ''}</span>
+        <button class="icon-btn ${isActive ? 'target-active' : ''}" onclick="setTarget('${s.id}','${b.id}')" title="Target this branch">&#9678;</button>
+        ${(s.branches || []).length > 2 ? `<button class="icon-btn danger" onclick="doRemoveBranch('${s.id}','${b.id}')">&times;</button>` : ''}
+      </div>
+      <div class="branch-body">
+        ${stepsHtml}
+        ${hint}
+      </div>
+    </div>`;
+  }).join('');
+
+  return `<div class="choice-card ${cls}">
+    <div class="choice-header">
+      <span class="direction ${dirClass}" style="font-weight:700">${prefix}{</span>
+      <span class="label">${label} Choice</span>
+      <span style="flex:1"></span>
+      <button class="icon-btn" onclick="doAddBranch('${s.id}')" title="Add branch">+</button>
+      <button class="icon-btn danger" onclick="doRemoveStep('${s.id}')">&times;</button>
+    </div>
+    ${branchHtml}
+    <div class="choice-footer">
+      <span class="direction ${dirClass}">}</span>
+    </div>
+  </div>`;
+}
+
+// ── DSL Output ─────────────────────────────────────────────────
+
+function renderDSL() {
+  const protocol = stepsToProtocol(steps);
+  const el = document.getElementById('dsl-output');
+  el.innerHTML = tokenizeProtocol(protocol);
+}
+
+function tokenizeProtocol(src) {
+  let html = '', i = 0;
+  while (i < src.length) {
+    if (src[i] === '!') { html += '<span class="tok-send">!</span>'; i++; }
+    else if (src[i] === '?') { html += '<span class="tok-recv">?</span>'; i++; }
+    else if ('.{},'.includes(src[i])) { html += `<span class="tok-op">${src[i]}</span>`; i++; }
+    else if (src.slice(i, i + 3) === 'rec' && (i + 3 >= src.length || !/[a-zA-Z0-9_\-]/.test(src[i + 3]))) {
+      html += '<span class="tok-kw">rec</span>'; i += 3;
+    } else if (src.slice(i, i + 3) === 'end' && (i + 3 >= src.length || !/[a-zA-Z0-9_\-]/.test(src[i + 3]))) {
+      html += '<span class="tok-kw">end</span>'; i += 3;
+    } else if (/[a-zA-Z0-9_\-]/.test(src[i])) {
+      const start = i;
+      while (i < src.length && /[a-zA-Z0-9_\-]/.test(src[i])) i++;
+      html += `<span class="tok-label">${src.slice(start, i)}</span>`;
+    } else if (src[i] === ' ') { html += ' '; i++; }
+    else { html += src[i]; i++; }
+  }
+  return html;
+}
+
+// ── FSM Preview ────────────────────────────────────────────────
+
+function renderFSM() {
+  const protocol = stepsToProtocol(steps);
+  const el = document.getElementById('fsm-output');
+
+  if (steps.length === 0) {
+    el.innerHTML = '<span style="color:var(--text-dim);font-style:italic">Add steps to see the state machine</span>';
+    return;
+  }
+
+  try {
+    const { states, transitions, endStates } = parseToFSM(protocol);
+    const bySource = new Map();
+    transitions.forEach(t => {
+      if (!bySource.has(t.from)) bySource.set(t.from, []);
+      bySource.get(t.from).push(t);
+    });
+
+    const allStates = [...states].sort((a, b) => a - b);
+    let html = '';
+
+    allStates.forEach(s => {
+      const outgoing = bySource.get(s);
+      if (!outgoing || outgoing.length === 0) {
+        if (endStates.has(s)) {
+          html += `<div class="fsm-row"><span class="fsm-node end">S${s}</span> <span class="fsm-arrow" style="font-style:italic;padding-top:3px">end</span></div>`;
+        }
+        return;
+      }
+
+      const isBranching = outgoing.length > 1;
+      html += `<div class="fsm-row"><span class="fsm-node">S${s}</span><span class="fsm-arrow">→</span>`;
+
+      if (isBranching) html += '<div class="fsm-branch-col">';
+      outgoing.forEach(t => {
+        const cls = t.dir === 'send' ? 'send' : t.dir === 'receive' ? 'recv' : 'loop';
+        const pre = t.dir === 'send' ? '!' : t.dir === 'receive' ? '?' : '↻';
+        html += `<div style="display:flex;align-items:center;gap:4px">
+          <span class="fsm-label ${cls}">${pre}${t.label}</span>
+          <span class="fsm-arrow">→</span>
+          <span class="fsm-node">S${t.to}</span>
+        </div>`;
+      });
+      if (isBranching) html += '</div>';
+      html += '</div>';
+    });
+
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = '<span style="color:var(--accent-error)">Parse error</span>';
+  }
+}
+
+function parseToFSM(protocol) {
+  const states = new Set([0]);
+  const transitions = [];
+  const endStates = new Set();
+  let nextState = 1, pos = 0;
+  const src = protocol;
+  const recVarStates = new Map();
+
+  const skipWS = () => { while (pos < src.length && ' \t\n\r'.includes(src[pos])) pos++; };
+  const readIdent = () => {
+    skipWS(); const start = pos;
+    while (pos < src.length && /[a-zA-Z0-9_\-]/.test(src[pos])) pos++;
+    return src.slice(start, pos);
+  };
+
+  const parse = (cur) => {
+    skipWS();
+    if (pos >= src.length) { endStates.add(cur); return cur; }
+    if (src.slice(pos, pos + 3) === 'end' && (pos + 3 >= src.length || !/[a-zA-Z0-9_\-]/.test(src[pos + 3]))) {
+      pos += 3; endStates.add(cur); return cur;
+    }
+    if (src.slice(pos, pos + 3) === 'rec' && (pos + 3 >= src.length || !/[a-zA-Z0-9_\-]/.test(src[pos + 3]))) {
+      pos += 3; const v = readIdent(); recVarStates.set(v, cur); skipWS(); if (src[pos] === '.') pos++; return parse(cur);
+    }
+    if (src[pos] === '!' || src[pos] === '?') {
+      const dir = src[pos] === '!' ? 'send' : 'receive'; pos++; skipWS();
+      if (pos < src.length && src[pos] === '{') {
+        pos++; const ends = [];
+        while (pos < src.length && src[pos] !== '}') {
+          skipWS(); if (src[pos] === ',') { pos++; continue; } if (src[pos] === '}') break;
+          const label = readIdent(); if (!label) { pos++; continue; }
+          const t = nextState++; states.add(t); transitions.push({ from: cur, to: t, dir, label });
+          skipWS();
+          if (src[pos] === '.') { pos++; ends.push(parse(t)); } else { ends.push(t); }
+          skipWS(); if (src[pos] === ',') pos++;
+        }
+        if (src[pos] === '}') pos++;
+        return ends.length > 0 ? ends[0] : cur;
+      } else {
+        const label = readIdent();
+        if (label) {
+          const t = nextState++; states.add(t); transitions.push({ from: cur, to: t, dir, label });
+          skipWS(); if (src[pos] === '.') { pos++; return parse(t); }
+          endStates.add(t); return t;
+        }
+      }
+    } else {
+      const ident = readIdent();
+      if (ident && recVarStates.has(ident)) {
+        const target = recVarStates.get(ident);
+        transitions.push({ from: cur, to: target, dir: 'loop', label: ident });
+        return cur;
+      }
+    }
+    skipWS(); if (src[pos] === '.') { pos++; return parse(cur); }
+    return cur;
+  };
+
+  try { parse(0); } catch(e) {}
+  return { states, transitions, endStates };
+}
+
+// ── Python Output ──────────────────────────────────────────────
+
+function renderPython() {
+  const protocol = stepsToProtocol(steps);
+  const toolEntries = tools.map(t => `        "${t.name}": ${t.name.replace(/[^a-zA-Z0-9_]/g, '_')}_fn,`).join('\n');
+
+  const code = `from llmcontract import Monitor, Ok, Violation, Blocked
+
+# Protocol (generated by llmcontract Protocol Builder)
+protocol = "${protocol}"
+
+# Create the monitor
+monitor = Monitor(protocol)
+
+# Step through the protocol:
+# monitor.send("label")    → Ok() | Violation(...) | Blocked(...)
+# monitor.receive("label") → Ok() | Violation(...) | Blocked(...)
+#
+# After a Violation, the monitor halts permanently.
+# monitor.is_terminal → True when protocol is complete.
+${tools.length > 0 ? `
+# Tool functions
+${tools.map(t => `def ${t.name.replace(/[^a-zA-Z0-9_]/g, '_')}_fn(**kwargs):\n    pass  # implement ${t.name}`).join('\n\n')}
+
+tools = {
+${toolEntries}
+}` : ''}`;
+
+  document.getElementById('python-output').textContent = code;
+}
+
+// ── Copy / Download / Share ────────────────────────────────────
+
+function copyDSL() {
+  navigator.clipboard.writeText(stepsToProtocol(steps));
+  const btn = document.getElementById('copy-dsl-btn');
+  btn.textContent = 'Copied!'; btn.classList.add('copied');
+  setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+}
+
+function copyPython() {
+  navigator.clipboard.writeText(document.getElementById('python-output').textContent);
+  const btn = document.getElementById('copy-py-btn');
+  btn.textContent = 'Copied!'; btn.classList.add('copied');
+  setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+}
+
+function downloadPython() {
+  const protocol = stepsToProtocol(steps);
+  const content = `# Protocol: ${protocol}\n\n${document.getElementById('python-output').textContent}`;
+  const blob = new Blob([content], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'protocol.py'; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function shareURL() {
+  const state = { tools: tools.map(t => t.name), protocol: stepsToProtocol(steps) };
+  const hash = btoa(JSON.stringify(state));
+  const url = window.location.origin + window.location.pathname + '#' + hash;
+  navigator.clipboard.writeText(url);
+  alert('Shareable URL copied to clipboard!');
+}
+
+function updateURL() {
+  if (steps.length === 0) { history.replaceState(null, '', window.location.pathname); return; }
+  const state = { tools: tools.map(t => t.name), protocol: stepsToProtocol(steps) };
+  try {
+    const hash = btoa(JSON.stringify(state));
+    history.replaceState(null, '', '#' + hash);
+  } catch(e) {}
+}
+
+function loadFromURL() {
+  const hash = window.location.hash.slice(1);
+  if (!hash) return false;
+  try {
+    const state = JSON.parse(atob(hash));
+    if (state.tools) tools = state.tools.map(n => ({ name: n }));
+    // We can't reconstruct steps from protocol string alone,
+    // so just load the tools for now
+    return true;
+  } catch(e) { return false; }
+}
+
+// ── Init ───────────────────────────────────────────────────────
+
+loadFromURL();
+render();
+</script>
+</body>
+</html>
