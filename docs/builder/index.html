@@ -164,6 +164,107 @@ nav .nav-links a:hover, nav .nav-links a.active { color: var(--text-primary); }
 .panel-body::-webkit-scrollbar-track { background: transparent; }
 .panel-body::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 2px; }
 
+/* ── MCP Connection ─── */
+.mcp-section {
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mcp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.mcp-header-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.mcp-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.mcp-status-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+.mcp-status-dot.connected { background: var(--mb-accent-ink); }
+.mcp-status-dot.connecting { background: var(--accent-warn); animation: pulse 1s infinite; }
+.mcp-status-dot.error { background: var(--accent-error); }
+
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+.mcp-url-row {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.mcp-url-row input {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  outline: none;
+  min-width: 0;
+}
+.mcp-url-row input:focus { border-color: var(--mb-accent-ink); }
+.mcp-url-row input::placeholder { color: var(--text-dim); }
+
+.mcp-transport-row {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+  align-items: center;
+}
+
+.mcp-transport-row label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+}
+
+.mcp-transport-row input[type="radio"] {
+  margin: 0;
+  accent-color: var(--mb-accent-ink);
+}
+
+.mcp-error {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--accent-error);
+  margin-top: 4px;
+  word-break: break-all;
+}
+
+.mcp-tool-count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--accent-send);
+  margin-top: 4px;
+}
+
 /* ── Tool Input ─── */
 .tool-input-row {
   display: flex;
@@ -605,6 +706,25 @@ nav .nav-links a:hover, nav .nav-links a.active { color: var(--text-primary); }
     <div class="panel">
       <div class="panel-header">Tools & Constructs</div>
       <div class="panel-body" id="palette">
+
+        <div class="mcp-section" id="mcp-section">
+          <div class="mcp-header">
+            <span class="mcp-header-label">MCP Server</span>
+            <div class="mcp-status" id="mcp-status">
+              <span class="mcp-status-dot" id="mcp-dot"></span>
+              <span id="mcp-status-text">disconnected</span>
+            </div>
+          </div>
+          <div class="mcp-url-row">
+            <input type="text" id="mcp-url-input" placeholder="http://localhost:3000/sse" onkeydown="if(event.key==='Enter')connectMCP()">
+            <button class="btn-sm primary" id="mcp-connect-btn" onclick="connectMCP()">Connect</button>
+          </div>
+          <div class="mcp-transport-row">
+            <label><input type="radio" name="mcp-transport" value="sse" checked> SSE</label>
+            <label><input type="radio" name="mcp-transport" value="streamable-http"> Streamable HTTP</label>
+          </div>
+          <div id="mcp-feedback"></div>
+        </div>
 
         <div class="tool-input-row">
           <input type="text" id="tool-name-input" placeholder="Tool name (e.g. get-weather)" onkeydown="if(event.key==='Enter')addTool()">
@@ -1497,6 +1617,240 @@ function loadFromURL() {
     // so just load the tools for now
     return true;
   } catch(e) { return false; }
+}
+
+// ── MCP Connection ─────────────────────────────────────────────
+
+let mcpState = { status: 'disconnected', eventSource: null, postUrl: null, nextId: 1 };
+
+function setMCPStatus(status, text) {
+  mcpState.status = status;
+  const dot = document.getElementById('mcp-dot');
+  const label = document.getElementById('mcp-status-text');
+  dot.className = 'mcp-status-dot ' + status;
+  label.textContent = text || status;
+  const btn = document.getElementById('mcp-connect-btn');
+  btn.textContent = status === 'connected' ? 'Disconnect' : status === 'connecting' ? '...' : 'Connect';
+  btn.disabled = status === 'connecting';
+}
+
+function setMCPFeedback(html) {
+  document.getElementById('mcp-feedback').innerHTML = html;
+}
+
+function connectMCP() {
+  if (mcpState.status === 'connected') { disconnectMCP(); return; }
+
+  const url = document.getElementById('mcp-url-input').value.trim();
+  if (!url) return;
+
+  const transport = document.querySelector('input[name="mcp-transport"]:checked').value;
+  setMCPStatus('connecting', 'connecting...');
+  setMCPFeedback('');
+
+  if (transport === 'sse') {
+    connectSSE(url);
+  } else {
+    connectStreamableHTTP(url);
+  }
+}
+
+function disconnectMCP() {
+  if (mcpState.eventSource) {
+    mcpState.eventSource.close();
+    mcpState.eventSource = null;
+  }
+  mcpState.postUrl = null;
+  mcpState.nextId = 1;
+  setMCPStatus('disconnected', 'disconnected');
+  setMCPFeedback('');
+}
+
+function connectSSE(url) {
+  try {
+    const es = new EventSource(url);
+    mcpState.eventSource = es;
+
+    es.addEventListener('endpoint', (e) => {
+      // The server sends the POST endpoint URL
+      let postUrl = e.data;
+      // If relative, resolve against the SSE URL
+      if (postUrl.startsWith('/')) {
+        const base = new URL(url);
+        postUrl = base.origin + postUrl;
+      } else if (!postUrl.startsWith('http')) {
+        const base = new URL(url);
+        postUrl = base.origin + '/' + postUrl;
+      }
+      mcpState.postUrl = postUrl;
+      doMCPInitialize();
+    });
+
+    es.addEventListener('message', (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        handleMCPResponse(msg);
+      } catch(err) {}
+    });
+
+    es.onerror = () => {
+      if (mcpState.status === 'connecting') {
+        setMCPStatus('error', 'failed');
+        setMCPFeedback('<div class="mcp-error">Could not connect. Check the URL and ensure CORS is enabled on the server.</div>');
+        es.close();
+        mcpState.eventSource = null;
+      }
+    };
+  } catch(err) {
+    setMCPStatus('error', 'failed');
+    setMCPFeedback(`<div class="mcp-error">${err.message}</div>`);
+  }
+}
+
+async function connectStreamableHTTP(url) {
+  try {
+    mcpState.postUrl = url;
+    await doMCPInitializeHTTP(url);
+  } catch(err) {
+    setMCPStatus('error', 'failed');
+    setMCPFeedback(`<div class="mcp-error">${err.message}</div>`);
+  }
+}
+
+// SSE transport: POST messages, receive responses via SSE
+let mcpPendingCallbacks = {};
+
+function sendMCPMessage(msg, callback) {
+  const id = mcpState.nextId++;
+  msg.id = id;
+  msg.jsonrpc = '2.0';
+  if (callback) mcpPendingCallbacks[id] = callback;
+
+  fetch(mcpState.postUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(msg),
+  }).catch(err => {
+    if (callback) { callback({ error: { message: err.message } }); delete mcpPendingCallbacks[id]; }
+  });
+}
+
+function handleMCPResponse(msg) {
+  if (msg.id && mcpPendingCallbacks[msg.id]) {
+    mcpPendingCallbacks[msg.id](msg);
+    delete mcpPendingCallbacks[msg.id];
+  }
+}
+
+function doMCPInitialize() {
+  sendMCPMessage({
+    method: 'initialize',
+    params: {
+      protocolVersion: '2024-11-05',
+      capabilities: {},
+      clientInfo: { name: 'llmcontract-builder', version: '1.0.0' }
+    }
+  }, (resp) => {
+    if (resp.error) {
+      setMCPStatus('error', 'init failed');
+      setMCPFeedback(`<div class="mcp-error">${resp.error.message || 'Initialize failed'}</div>`);
+      return;
+    }
+    // Send initialized notification (no id)
+    fetch(mcpState.postUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
+    }).catch(() => {});
+
+    // Now list tools
+    sendMCPMessage({ method: 'tools/list', params: {} }, handleToolsListResponse);
+  });
+}
+
+async function doMCPInitializeHTTP(url) {
+  // Streamable HTTP: POST and read JSON response directly
+  const initResp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' },
+    body: JSON.stringify({
+      jsonrpc: '2.0', id: mcpState.nextId++, method: 'initialize',
+      params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'llmcontract-builder', version: '1.0.0' } }
+    }),
+  });
+
+  if (!initResp.ok) throw new Error(`Server returned ${initResp.status}`);
+
+  const contentType = initResp.headers.get('content-type') || '';
+  let initResult;
+  if (contentType.includes('text/event-stream')) {
+    initResult = await parseSSEResponse(initResp);
+  } else {
+    initResult = await initResp.json();
+  }
+
+  if (initResult.error) throw new Error(initResult.error.message || 'Initialize failed');
+
+  // Send initialized notification
+  await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
+  }).catch(() => {});
+
+  // List tools
+  const toolsResp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: mcpState.nextId++, method: 'tools/list', params: {} }),
+  });
+
+  if (!toolsResp.ok) throw new Error(`tools/list returned ${toolsResp.status}`);
+
+  const toolsContentType = toolsResp.headers.get('content-type') || '';
+  let toolsResult;
+  if (toolsContentType.includes('text/event-stream')) {
+    toolsResult = await parseSSEResponse(toolsResp);
+  } else {
+    toolsResult = await toolsResp.json();
+  }
+  handleToolsListResponse(toolsResult);
+}
+
+async function parseSSEResponse(resp) {
+  const text = await resp.text();
+  const lines = text.split('\n');
+  for (const line of lines) {
+    if (line.startsWith('data: ')) {
+      try { return JSON.parse(line.slice(6)); } catch(e) {}
+    }
+  }
+  throw new Error('No valid JSON-RPC message in SSE response');
+}
+
+function handleToolsListResponse(msg) {
+  if (msg.error) {
+    setMCPStatus('error', 'tools/list failed');
+    setMCPFeedback(`<div class="mcp-error">${msg.error.message || 'Failed to list tools'}</div>`);
+    return;
+  }
+
+  const toolsList = msg.result?.tools || [];
+  const newToolNames = toolsList.map(t => t.name);
+
+  // Merge with existing tools (don't duplicate)
+  const existing = new Set(tools.map(t => t.name));
+  let added = 0;
+  for (const name of newToolNames) {
+    if (!existing.has(name)) {
+      tools.push({ name });
+      added++;
+    }
+  }
+
+  setMCPStatus('connected', `${newToolNames.length} tools`);
+  setMCPFeedback(`<div class="mcp-tool-count">${added > 0 ? `Loaded ${added} tool${added !== 1 ? 's' : ''}` : 'All tools already present'}</div>`);
+  render();
 }
 
 // ── Init ───────────────────────────────────────────────────────
