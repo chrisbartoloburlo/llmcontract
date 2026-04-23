@@ -3,13 +3,37 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "llmcontract"
+name = "llmsessioncontract"
 version = "0.1.0"
 description = "Runtime monitor for LLM agent interaction protocols based on session type theory"
 requires-python = ">=3.10"
+license = "MIT"
+authors = [
+    { name = "Chris Bartolo Burlo", email = "chris@mizziburlo.com" },
+]
+readme = "README.md"
+keywords = ["llm", "agents", "session-types", "runtime-monitoring", "protocol", "contracts"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://llmcontract.dev"
+Repository = "https://github.com/chrisbartoloburlo/llmcontract"
+Issues = "https://github.com/chrisbartoloburlo/llmcontract/issues"
 
 [project.optional-dependencies]
 dev = ["pytest"]
 
 [tool.setuptools.packages.find]
 include = ["llmcontract*"]
+exclude = ["llmcontract.tests", "llmcontract.tests.*"]
