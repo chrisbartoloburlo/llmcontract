@@ -1,0 +1,1623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>llmcontract — Runtime Protocol Monitor for LLM Agents</title>
+<meta name="description" content="Enforce interaction protocols on LLM agents at runtime. Define contracts with session types, catch violations before they cause harm.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  /* mizziburlo brand tokens */
+  --mb-ink: #121212;
+  --mb-paper: #F1F1F1;
+  --mb-accent: #C4EF7A;
+  --mb-accent-ink: #527200;
+  --mb-hot: #FC4C3B;
+  --mb-ai: oklch(0.65 0.15 280);
+
+  /* semantic mapping */
+  --bg-deep: var(--mb-paper);
+  --bg-surface: #E6E6E6;
+  --bg-elevated: #DBDBDB;
+  --bg-card: #D0D0D0;
+  --border: rgba(18, 18, 18, 0.15);
+  --border-bright: rgba(18, 18, 18, 0.30);
+  --text-primary: var(--mb-ink);
+  --text-secondary: rgba(18, 18, 18, 0.55);
+  --text-dim: rgba(18, 18, 18, 0.32);
+  --accent-send: var(--mb-accent-ink);
+  --accent-send-dim: rgba(196, 239, 122, 0.30);
+  --accent-recv: var(--mb-ai);
+  --accent-recv-dim: rgba(140, 80, 220, 0.10);
+  --accent-error: var(--mb-hot);
+  --accent-error-dim: rgba(252, 76, 59, 0.10);
+  --accent-warn: #9a6700;
+  --accent-warn-dim: rgba(154, 103, 0, 0.08);
+  --accent-neutral: rgba(18, 18, 18, 0.40);
+  --font-mono: 'Space Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif;
+  --radius: 4px;
+  --radius-lg: 8px;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  line-height: 1.65;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Grid background ─── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 60px 60px;
+  opacity: 0.12;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Layout ─── */
+.container {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 24px;
+  position: relative;
+  z-index: 1;
+}
+
+section {
+  padding: 100px 0;
+  position: relative;
+}
+
+/* ── Navigation ─── */
+nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: rgba(241, 241, 241, 0.88);
+  backdrop-filter: blur(16px);
+  border-bottom: 1.5px solid rgba(18, 18, 18, 0.12);
+  padding: 0 24px;
+}
+
+nav .nav-inner {
+  max-width: 1120px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 56px;
+}
+
+nav .logo {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--text-primary);
+  text-decoration: none;
+  letter-spacing: 0;
+}
+
+nav .logo span { color: var(--mb-hot); }
+
+nav .nav-links {
+  display: flex;
+  gap: 28px;
+  list-style: none;
+}
+
+nav .nav-links a {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+nav .nav-links a:hover { color: var(--text-primary); }
+
+/* ── Hero ─── */
+.hero {
+  padding: 160px 0 100px;
+  text-align: center;
+}
+
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: var(--accent-send-dim);
+  border: 1.5px solid rgba(18, 18, 18, 0.15);
+  border-radius: 20px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mb-accent-ink);
+  margin-bottom: 28px;
+  animation: fadeInDown 0.6s ease-out;
+}
+
+.hero h1 {
+  font-family: var(--font-body);
+  font-size: clamp(36px, 5vw, 56px);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.035em;
+  margin-bottom: 20px;
+  animation: fadeInUp 0.7s ease-out;
+}
+
+.hero h1 .highlight {
+  color: var(--mb-accent-ink);
+  background: var(--mb-accent);
+  -webkit-background-clip: initial;
+  -webkit-text-fill-color: initial;
+  background-clip: initial;
+  padding: 0 8px;
+  border-radius: 4px;
+}
+
+.hero .subtitle {
+  font-size: 17px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  max-width: 620px;
+  margin: 0 auto 36px;
+  line-height: 1.6;
+  letter-spacing: -0.01em;
+  animation: fadeInUp 0.8s ease-out;
+}
+
+.hero-actions {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  flex-wrap: wrap;
+  animation: fadeInUp 0.9s ease-out;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: all 0.2s;
+  cursor: pointer;
+  border: none;
+}
+
+.btn-primary {
+  background: var(--mb-ink);
+  color: var(--mb-paper);
+}
+
+.btn-primary:hover {
+  background: var(--mb-accent);
+  color: var(--mb-accent-ink);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(18, 18, 18, 0.15);
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1.5px solid var(--border-bright);
+}
+
+.btn-secondary:hover {
+  background: var(--mb-accent);
+  color: var(--mb-accent-ink);
+  border-color: var(--mb-accent);
+}
+
+.hero-protocol {
+  margin-top: 56px;
+  animation: fadeInUp 1s ease-out;
+}
+
+.hero-protocol pre {
+  display: inline-block;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px 32px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--text-secondary);
+  text-align: left;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.hero-protocol .tok-send { color: var(--accent-send); }
+.hero-protocol .tok-recv { color: var(--accent-recv); }
+.hero-protocol .tok-kw { color: var(--accent-warn); font-style: italic; }
+.hero-protocol .tok-op { color: var(--text-dim); }
+.hero-protocol .tok-label { color: var(--text-primary); }
+
+/* ── Section headers ─── */
+.section-header {
+  margin-bottom: 48px;
+}
+
+.section-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+.section-header h2 {
+  font-family: var(--font-body);
+  font-size: clamp(28px, 3.5vw, 38px);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.2;
+  margin-bottom: 14px;
+}
+
+.section-header p {
+  font-size: 16px;
+  color: var(--text-secondary);
+  max-width: 560px;
+  letter-spacing: -0.01em;
+}
+
+/* ── Interactive Demo ─── */
+#demo { background: var(--bg-surface); border-top: 1.5px solid var(--border); border-bottom: 1.5px solid var(--border); }
+
+.demo-controls {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.demo-controls button {
+  padding: 8px 16px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.demo-controls button:hover {
+  border-color: var(--border-bright);
+  color: var(--text-primary);
+}
+
+.demo-controls button.active {
+  border-color: var(--accent-send);
+  color: var(--accent-send);
+  background: var(--accent-send-dim);
+}
+
+.demo-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 768px) {
+  .demo-grid { grid-template-columns: 1fr; }
+}
+
+.demo-panel {
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.demo-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--bg-elevated);
+  border-bottom: 1.5px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.demo-panel-header .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.demo-panel-body {
+  padding: 16px;
+  min-height: 200px;
+}
+
+/* Protocol display */
+.protocol-display {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.8;
+  padding: 8px;
+  word-break: break-all;
+}
+
+/* State machine visualization */
+.state-machine {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px;
+  align-items: center;
+}
+
+.sm-node {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  transition: all 0.3s;
+  position: relative;
+}
+
+.sm-node.current {
+  border-color: var(--accent-send);
+  color: var(--accent-send);
+  background: var(--accent-send-dim);
+  box-shadow: 0 0 12px rgba(196, 239, 122, 0.5);
+}
+
+.sm-node.visited {
+  border-color: var(--text-dim);
+  color: var(--text-dim);
+}
+
+.sm-node.terminal {
+  border-style: double;
+  border-width: 3px;
+}
+
+.sm-node.error {
+  border-color: var(--accent-error);
+  color: var(--accent-error);
+  background: var(--accent-error-dim);
+}
+
+.sm-arrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sm-arrow .arrow-label {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.sm-arrow .arrow-label.send { color: var(--accent-send); background: var(--accent-send-dim); }
+.sm-arrow .arrow-label.recv { color: var(--accent-recv); background: var(--accent-recv-dim); }
+
+/* Actions panel */
+.action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px;
+}
+
+.action-btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: 1px solid;
+}
+
+.action-btn.send-action {
+  background: var(--accent-send-dim);
+  border-color: rgba(13, 150, 104, 0.25);
+  color: var(--accent-send);
+}
+
+.action-btn.send-action:hover {
+  background: rgba(13, 150, 104, 0.15);
+  border-color: var(--accent-send);
+}
+
+.action-btn.recv-action {
+  background: var(--accent-recv-dim);
+  border-color: rgba(59, 106, 223, 0.25);
+  color: var(--accent-recv);
+}
+
+.action-btn.recv-action:hover {
+  background: rgba(59, 106, 223, 0.15);
+  border-color: var(--accent-recv);
+}
+
+.action-btn.wrong-action {
+  background: var(--accent-error-dim);
+  border-color: rgba(217, 48, 80, 0.25);
+  color: var(--accent-error);
+}
+
+.action-btn.wrong-action:hover {
+  background: rgba(217, 48, 80, 0.15);
+  border-color: var(--accent-error);
+}
+
+.action-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* Event log */
+.event-log {
+  padding: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.event-log::-webkit-scrollbar { width: 4px; }
+.event-log::-webkit-scrollbar-track { background: transparent; }
+.event-log::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 2px; }
+
+.log-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  animation: slideIn 0.2s ease-out;
+}
+
+.log-entry + .log-entry { margin-top: 2px; }
+
+.log-entry .log-index {
+  color: var(--text-dim);
+  min-width: 20px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.log-entry .log-icon {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.log-entry.ok .log-icon { background: var(--accent-send-dim); color: var(--accent-send); }
+.log-entry.violation .log-icon { background: var(--accent-error-dim); color: var(--accent-error); }
+.log-entry.blocked .log-icon { background: rgba(138, 147, 163, 0.25); color: var(--text-dim); }
+
+.log-entry .log-text { color: var(--text-secondary); }
+.log-entry .log-text strong { color: var(--text-primary); font-weight: 500; }
+.log-entry.ok .log-text .action { color: var(--accent-send); }
+.log-entry.violation .log-text .action { color: var(--accent-error); }
+.log-entry.violation .log-text .expected { color: var(--accent-recv); }
+
+.log-empty {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 20px 8px;
+  text-align: center;
+  font-style: italic;
+}
+
+.demo-status {
+  margin-top: 16px;
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.demo-status.status-ready {
+  background: var(--accent-send-dim);
+  border: 1px solid rgba(13, 150, 104, 0.15);
+  color: var(--accent-send);
+}
+
+.demo-status.status-ok {
+  background: var(--accent-send-dim);
+  border: 1px solid rgba(13, 150, 104, 0.15);
+  color: var(--accent-send);
+}
+
+.demo-status.status-violation {
+  background: var(--accent-error-dim);
+  border: 1px solid rgba(217, 48, 80, 0.15);
+  color: var(--accent-error);
+}
+
+.demo-status.status-complete {
+  background: var(--accent-recv-dim);
+  border: 1px solid rgba(59, 106, 223, 0.15);
+  color: var(--accent-recv);
+}
+
+.demo-status.status-blocked {
+  background: rgba(138, 147, 163, 0.1);
+  border: 1px solid rgba(138, 147, 163, 0.25);
+  color: var(--text-dim);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-ready .status-dot { background: var(--accent-send); animation: pulse 2s infinite; }
+.status-ok .status-dot { background: var(--accent-send); }
+.status-violation .status-dot { background: var(--accent-error); }
+.status-complete .status-dot { background: var(--accent-recv); }
+.status-blocked .status-dot { background: var(--text-dim); }
+
+.demo-reset {
+  margin-top: 12px;
+  padding: 8px 16px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.demo-reset:hover {
+  border-color: var(--border-bright);
+  color: var(--text-primary);
+}
+
+/* ── DSL Reference ─── */
+.dsl-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.dsl-table th {
+  text-align: left;
+  padding: 12px 16px;
+  border-bottom: 2px solid var(--border-bright);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.dsl-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.dsl-table tr:last-child td { border-bottom: none; }
+
+.dsl-table .syntax-cell {
+  color: var(--accent-send);
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.dsl-table .meaning-cell {
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+}
+
+.dsl-table-wrap {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+/* ── Code Examples ─── */
+.code-examples {
+  display: grid;
+  gap: 20px;
+}
+
+.code-block {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+}
+
+.code-block-title {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.code-block-lang {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  padding: 2px 8px;
+  background: var(--bg-surface);
+  border-radius: 4px;
+}
+
+.code-block pre {
+  padding: 20px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-x: auto;
+  color: var(--text-secondary);
+}
+
+.code-block pre::-webkit-scrollbar { height: 4px; }
+.code-block pre::-webkit-scrollbar-track { background: transparent; }
+.code-block pre::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 2px; }
+
+.code-block .c-kw { color: var(--accent-warn); }
+.code-block .c-fn { color: var(--accent-recv); }
+.code-block .c-str { color: var(--accent-send); }
+.code-block .c-cm { color: var(--text-dim); font-style: italic; }
+.code-block .c-cls { color: var(--mb-ai); }
+.code-block .c-var { color: var(--text-primary); }
+.code-block .c-op { color: var(--text-dim); }
+
+/* ── Architecture ─── */
+.arch-flow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 40px 20px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow-x: auto;
+  flex-wrap: wrap;
+}
+
+.arch-node {
+  padding: 14px 22px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.arch-node small {
+  display: block;
+  font-size: 10px;
+  color: var(--text-dim);
+  font-weight: 400;
+  margin-top: 4px;
+}
+
+.arch-arrow {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  color: var(--text-dim);
+  padding: 0 10px;
+  flex-shrink: 0;
+}
+
+/* ── Install Section ─── */
+#install {
+  text-align: center;
+}
+
+.install-cmd {
+  display: inline-block;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px 40px;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  color: var(--text-primary);
+  margin: 24px 0 36px;
+}
+
+.install-cmd .prompt { color: var(--mb-hot); }
+
+/* ── Footer ─── */
+footer {
+  border-top: 1.5px solid var(--border);
+  padding: 40px 0;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+footer a {
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+footer a:hover { color: var(--mb-ink); }
+
+/* ── Animations ─── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ── Scroll animations ─── */
+.reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+}
+
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ── Responsive ─── */
+@media (max-width: 640px) {
+  section { padding: 60px 0; }
+  .hero { padding: 120px 0 60px; }
+  nav .nav-links { display: none; }
+  .arch-flow { flex-direction: column; gap: 8px; }
+  .arch-arrow { transform: rotate(90deg); padding: 4px 0; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a href="#" class="logo">llmcontract<span>.</span></a>
+    <ul class="nav-links">
+      <li><a href="#demo">Demo</a></li>
+      <li><a href="#dsl">DSL</a></li>
+      <li><a href="#code">Code</a></li>
+      <li><a href="#architecture">Architecture</a></li>
+      <li><a href="https://github.com/chrisbartoloburlo/llmcontract" target="_blank">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- ═══════ HERO ═══════ -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-badge">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      Session Type Theory
+    </div>
+    <h1>Runtime contracts<br>for <span class="highlight">LLM agents</span></h1>
+    <p class="subtitle">
+      Define interaction protocols as session types. Monitor your agent's sends, receives, and tool calls at runtime. Catch violations before they cause harm.
+    </p>
+    <div class="hero-actions">
+      <a href="#demo" class="btn btn-primary">Try the live demo</a>
+      <a href="https://github.com/chrisbartoloburlo/llmcontract" class="btn btn-secondary" target="_blank">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+        GitHub
+      </a>
+    </div>
+    <div class="hero-protocol">
+      <pre><span class="tok-send">!</span><span class="tok-label">SearchFlights</span><span class="tok-op">.</span><span class="tok-recv">?</span><span class="tok-label">FlightResults</span><span class="tok-op">.</span><span class="tok-send">!</span><span class="tok-label">PresentOptions</span><span class="tok-op">.</span><span class="tok-recv">?</span><span class="tok-label">UserApproval</span><span class="tok-op">.</span><span class="tok-send">!</span><span class="tok-label">BookFlight</span><span class="tok-op">.</span><span class="tok-recv">?</span><span class="tok-label">BookingConfirmation</span><span class="tok-op">.</span><span class="tok-kw">end</span></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ DEMO ═══════ -->
+<section id="demo">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="section-label">Interactive Demo</div>
+      <h2>Step through a protocol</h2>
+      <p>Pick a protocol, then click actions to step through it. Try breaking the rules to see violations in real-time.</p>
+    </div>
+
+    <div class="demo-controls reveal">
+      <button class="active" onclick="loadPreset(0)">Flight Booking</button>
+      <button onclick="loadPreset(1)">Card Payment</button>
+      <button onclick="loadPreset(2)">Tool Loop</button>
+    </div>
+
+    <div class="demo-grid reveal">
+      <!-- Left: Protocol + State Machine -->
+      <div style="display: flex; flex-direction: column; gap: 20px;">
+        <div class="demo-panel">
+          <div class="demo-panel-header">
+            <div class="dot" style="background: var(--accent-send);"></div>
+            Protocol
+          </div>
+          <div class="demo-panel-body">
+            <div id="protocol-display" class="protocol-display"></div>
+          </div>
+        </div>
+        <div class="demo-panel">
+          <div class="demo-panel-header">
+            <div class="dot" style="background: var(--accent-recv);"></div>
+            State Machine
+          </div>
+          <div class="demo-panel-body">
+            <div id="state-machine" class="state-machine"></div>
+          </div>
+        </div>
+        <div class="demo-panel">
+          <div class="demo-panel-header">
+            <div class="dot" style="background: var(--accent-warn);"></div>
+            Available Actions
+          </div>
+          <div class="demo-panel-body">
+            <div id="action-buttons" class="action-buttons"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Event Log -->
+      <div style="display: flex; flex-direction: column; gap: 20px;">
+        <div class="demo-panel" style="flex: 1;">
+          <div class="demo-panel-header">
+            <div class="dot" style="background: var(--text-dim);"></div>
+            Event Log
+          </div>
+          <div class="demo-panel-body">
+            <div id="event-log" class="event-log">
+              <div class="log-empty">Click an action to begin...</div>
+            </div>
+          </div>
+        </div>
+        <div id="demo-status" class="demo-status status-ready">
+          <div class="status-dot"></div>
+          <span>Ready — select an action to step through the protocol</span>
+        </div>
+        <button class="demo-reset" onclick="resetDemo()">Reset Demo</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ DSL Reference ═══════ -->
+<section id="dsl">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="section-label">DSL Reference</div>
+      <h2>Protocol syntax</h2>
+      <p>A concise notation for defining interaction protocols, inspired by session type theory.</p>
+    </div>
+    <div class="dsl-table-wrap reveal">
+      <table class="dsl-table">
+        <thead>
+          <tr><th>Syntax</th><th>Meaning</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="syntax-cell">!label</td><td class="meaning-cell">Send action — the agent emits a message or calls an API</td></tr>
+          <tr><td class="syntax-cell">?label</td><td class="meaning-cell">Receive action — the agent receives a response or event</td></tr>
+          <tr><td class="syntax-cell">!{a, b}</td><td class="meaning-cell">Internal choice — the sender selects one of several branches</td></tr>
+          <tr><td class="syntax-cell">?{a, b}</td><td class="meaning-cell">External choice — the receiver selects one of several branches</td></tr>
+          <tr><td class="syntax-cell">A.B</td><td class="meaning-cell">Sequence — A must complete before B begins</td></tr>
+          <tr><td class="syntax-cell">rec X. ...X...</td><td class="meaning-cell">Recursion — defines a loop; X references the loop point</td></tr>
+          <tr><td class="syntax-cell">end</td><td class="meaning-cell">Terminal state — protocol is complete</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ Code Examples ═══════ -->
+<section id="code">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="section-label">Python API</div>
+      <h2>Three lines to safety</h2>
+      <p>From raw monitor to full agent integration — use what fits your architecture.</p>
+    </div>
+    <div class="code-examples">
+      <div class="code-block reveal">
+        <div class="code-block-header">
+          <span class="code-block-title">Basic Monitor</span>
+          <span class="code-block-lang">Python</span>
+        </div>
+        <pre><span class="c-kw">from</span> <span class="c-var">llmcontract</span> <span class="c-kw">import</span> <span class="c-cls">Monitor</span>, <span class="c-cls">Ok</span>, <span class="c-cls">Violation</span>
+
+<span class="c-var">m</span> <span class="c-op">=</span> <span class="c-cls">Monitor</span>(<span class="c-str">"!Search.?Results.!Book.?Confirm.end"</span>)
+
+m.<span class="c-fn">send</span>(<span class="c-str">"Search"</span>)      <span class="c-cm"># Ok()</span>
+m.<span class="c-fn">receive</span>(<span class="c-str">"Results"</span>)  <span class="c-cm"># Ok()</span>
+m.<span class="c-fn">send</span>(<span class="c-str">"Book"</span>)        <span class="c-cm"># Ok()</span>
+m.<span class="c-fn">receive</span>(<span class="c-str">"Confirm"</span>)  <span class="c-cm"># Ok()</span>
+<span class="c-kw">assert</span> m.<span class="c-var">is_terminal</span>
+
+m.<span class="c-fn">send</span>(<span class="c-str">"Book"</span>)        <span class="c-cm"># Violation — protocol already ended</span></pre>
+      </div>
+
+      <div class="code-block reveal">
+        <div class="code-block-header">
+          <span class="code-block-title">Client Wrapper</span>
+          <span class="code-block-lang">Python</span>
+        </div>
+        <pre><span class="c-kw">from</span> <span class="c-var">llmcontract</span> <span class="c-kw">import</span> <span class="c-cls">Monitor</span>, <span class="c-cls">MonitoredClient</span>, <span class="c-cls">LLMResponse</span>
+
+<span class="c-var">monitor</span> <span class="c-op">=</span> <span class="c-cls">Monitor</span>(<span class="c-str">"rec X.!Request.?{ToolCall.!Result.X, Answer.end}"</span>)
+
+<span class="c-var">client</span> <span class="c-op">=</span> <span class="c-cls">MonitoredClient</span>(
+    <span class="c-var">llm_call</span><span class="c-op">=</span>openai.chat.completions.create,
+    <span class="c-var">response_adapter</span><span class="c-op">=</span>my_adapter,
+    <span class="c-var">monitor</span><span class="c-op">=</span>monitor,
+    <span class="c-var">send_label</span><span class="c-op">=</span><span class="c-str">"Request"</span>,
+    <span class="c-var">receive_label</span><span class="c-op">=</span><span class="c-kw">lambda</span> <span class="c-var">r</span>: <span class="c-str">"ToolCall"</span> <span class="c-kw">if</span> r.has_tool_calls <span class="c-kw">else</span> <span class="c-str">"Answer"</span>,
+)
+
+<span class="c-var">response</span> <span class="c-op">=</span> client.<span class="c-fn">call</span>(<span class="c-var">model</span><span class="c-op">=</span><span class="c-str">"gpt-4"</span>, <span class="c-var">messages</span><span class="c-op">=</span>[...])
+<span class="c-cm"># Automatically fires !Request then ?ToolCall or ?Answer</span></pre>
+      </div>
+
+      <div class="code-block reveal">
+        <div class="code-block-header">
+          <span class="code-block-title">Tool Middleware</span>
+          <span class="code-block-lang">Python</span>
+        </div>
+        <pre><span class="c-kw">from</span> <span class="c-var">llmcontract</span> <span class="c-kw">import</span> <span class="c-cls">ToolMiddleware</span>, <span class="c-cls">ProtocolViolationError</span>
+
+<span class="c-var">tools</span> <span class="c-op">=</span> <span class="c-cls">ToolMiddleware</span>(
+    <span class="c-var">monitor</span><span class="c-op">=</span>monitor,   <span class="c-cm"># same monitor as the client</span>
+    <span class="c-var">tools</span><span class="c-op">=</span>{<span class="c-str">"search"</span>: search_fn, <span class="c-str">"book"</span>: book_fn},
+)
+
+<span class="c-kw">try</span>:
+    <span class="c-var">results</span> <span class="c-op">=</span> tools.<span class="c-fn">process</span>(response)
+<span class="c-kw">except</span> <span class="c-cls">ProtocolViolationError</span> <span class="c-kw">as</span> <span class="c-var">e</span>:
+    <span class="c-cm"># Tool call violated the protocol — blocked automatically</span>
+    <span class="c-fn">print</span>(<span class="c-str">f"Violation: </span><span class="c-var">{e}</span><span class="c-str">"</span>)</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ Architecture ═══════ -->
+<section id="architecture">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="section-label">Architecture</div>
+      <h2>From DSL to enforcement</h2>
+      <p>Protocol strings compile through a clean pipeline into a runtime monitor.</p>
+    </div>
+    <div class="arch-flow reveal">
+      <div class="arch-node">DSL String<small>protocol definition</small></div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node">Parser<small>recursive descent</small></div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node">AST<small>dataclass nodes</small></div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node">Compiler<small>FSM builder</small></div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node">Automaton<small>state machine</small></div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node" style="background: var(--mb-accent); border-color: var(--mb-accent); color: var(--mb-accent-ink);">Monitor<small style="color: var(--mb-accent-ink); opacity: 0.7;">runtime enforcer</small></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ Install ═══════ -->
+<section id="install">
+  <div class="container reveal">
+    <div class="section-label" style="text-align: center;">Get Started</div>
+    <h2 style="font-family: var(--font-body); font-size: 32px; font-weight: 600; letter-spacing: -0.035em; text-align: center;">Install llmcontract</h2>
+    <div class="install-cmd">
+      <span class="prompt">$</span> pip install llmcontract
+    </div>
+    <div style="display: flex; gap: 14px; justify-content: center; flex-wrap: wrap;">
+      <a href="https://github.com/chrisbartoloburlo/llmcontract" class="btn btn-primary" target="_blank">
+        View on GitHub
+      </a>
+      <a href="https://github.com/chrisbartoloburlo/llmcontract#readme" class="btn btn-secondary" target="_blank">
+        Read the docs
+      </a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <p>llmcontract — runtime protocol monitoring for LLM agents</p>
+    <p style="margin-top: 8px;"><a href="https://github.com/chrisbartoloburlo/llmcontract" target="_blank">github.com/chrisbartoloburlo/llmcontract</a></p>
+  </div>
+</footer>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// Minimal JS reimplementation of the parser + FSM + monitor
+// ═══════════════════════════════════════════════════════════════
+
+class ParseError extends Error {
+  constructor(msg, pos) { super(`Parse error at ${pos}: ${msg}`); this.pos = pos; }
+}
+
+class Parser {
+  constructor(src) { this.src = src; this.pos = 0; }
+
+  _skipWS() { while (this.pos < this.src.length && ' \t\n\r'.includes(this.src[this.pos])) this.pos++; }
+
+  _peek() { this._skipWS(); return this.pos < this.src.length ? this.src[this.pos] : null; }
+
+  _expect(ch) {
+    this._skipWS();
+    if (this.pos >= this.src.length || this.src[this.pos] !== ch)
+      throw new ParseError(`expected '${ch}', got '${this.pos < this.src.length ? this.src[this.pos] : 'EOF'}'`, this.pos);
+    this.pos++;
+  }
+
+  _readIdent() {
+    this._skipWS();
+    const start = this.pos;
+    while (this.pos < this.src.length && /[a-zA-Z0-9_]/.test(this.src[this.pos])) this.pos++;
+    if (this.pos === start) throw new ParseError(`expected identifier`, this.pos);
+    return this.src.slice(start, this.pos);
+  }
+
+  _atKeyword(kw) {
+    this._skipWS();
+    const end = this.pos + kw.length;
+    if (this.src.slice(this.pos, end) === kw) {
+      if (end >= this.src.length || !/[a-zA-Z0-9_]/.test(this.src[end])) return true;
+    }
+    return false;
+  }
+
+  parse() {
+    const node = this._parseProtocol();
+    this._skipWS();
+    if (this.pos < this.src.length) throw new ParseError(`unexpected '${this.src[this.pos]}'`, this.pos);
+    return node;
+  }
+
+  _parseProtocol() {
+    let left = this._parseAtom();
+    this._skipWS();
+    if (this._peek() === '.') {
+      this.pos++;
+      this._skipWS();
+      if (this.pos >= this.src.length) throw new ParseError('unexpected EOF after "."', this.pos);
+      const right = this._parseProtocol();
+      left = { type: 'Sequence', left, right };
+    }
+    return left;
+  }
+
+  _parseAtom() {
+    const ch = this._peek();
+    if (ch === null) throw new ParseError('unexpected EOF', this.pos);
+    if (ch === '!') { this.pos++; return this._parseSend(); }
+    if (ch === '?') { this.pos++; return this._parseRecv(); }
+    if (this._atKeyword('rec')) return this._parseRec();
+    if (this._atKeyword('end')) { this.pos += 3; return { type: 'End' }; }
+    const ident = this._readIdent();
+    return { type: 'RecVar', var: ident };
+  }
+
+  _parseSend() {
+    if (this._peek() === '{') return this._parseChoice('InternalChoice');
+    return { type: 'Send', label: this._readIdent() };
+  }
+
+  _parseRecv() {
+    if (this._peek() === '{') return this._parseChoice('ExternalChoice');
+    return { type: 'Receive', label: this._readIdent() };
+  }
+
+  _parseChoice(choiceType) {
+    this._expect('{');
+    const branches = {};
+    let [label, body] = this._parseBranch();
+    branches[label] = body;
+    while (this._peek() === ',') {
+      this.pos++;
+      [label, body] = this._parseBranch();
+      branches[label] = body;
+    }
+    this._expect('}');
+    return { type: choiceType, branches };
+  }
+
+  _parseBranch() {
+    const label = this._readIdent();
+    this._skipWS();
+    let body = { type: 'End' };
+    if (this._peek() === '.') {
+      this.pos++;
+      body = this._parseProtocol();
+    }
+    return [label, body];
+  }
+
+  _parseRec() {
+    this.pos += 3;
+    const v = this._readIdent();
+    this._expect('.');
+    const body = this._parseProtocol();
+    return { type: 'Recursion', var: v, body };
+  }
+}
+
+function parseProtocol(src) { return new Parser(src).parse(); }
+
+// ── FSM Compiler ──
+
+function compileAST(node) {
+  const aut = { transitions: {}, terminalStates: new Set(), nextId: 0 };
+
+  function newState() {
+    const id = aut.nextId++;
+    aut.transitions[id] = {};
+    return id;
+  }
+
+  function compile(node, current, recEnv) {
+    if (node.type === 'End') {
+      aut.terminalStates.add(current);
+    } else if (node.type === 'Send') {
+      const nxt = newState();
+      aut.transitions[current][`send:${node.label}`] = nxt;
+      aut.terminalStates.add(nxt);
+    } else if (node.type === 'Receive') {
+      const nxt = newState();
+      aut.transitions[current][`receive:${node.label}`] = nxt;
+      aut.terminalStates.add(nxt);
+    } else if (node.type === 'InternalChoice') {
+      for (const [label, branch] of Object.entries(node.branches)) {
+        const nxt = newState();
+        aut.transitions[current][`send:${label}`] = nxt;
+        compile(branch, nxt, recEnv);
+      }
+    } else if (node.type === 'ExternalChoice') {
+      for (const [label, branch] of Object.entries(node.branches)) {
+        const nxt = newState();
+        aut.transitions[current][`receive:${label}`] = nxt;
+        compile(branch, nxt, recEnv);
+      }
+    } else if (node.type === 'Sequence') {
+      compile(node.left, current, recEnv);
+      const leaves = collectLeaves(node.left, current, aut);
+      for (const s of leaves) {
+        aut.terminalStates.delete(s);
+        compile(node.right, s, recEnv);
+      }
+    } else if (node.type === 'Recursion') {
+      const env2 = { ...recEnv, [node.var]: current };
+      compile(node.body, current, env2);
+    } else if (node.type === 'RecVar') {
+      const target = recEnv[node.var];
+      if (target !== undefined) {
+        for (const [k, v] of Object.entries(aut.transitions[target] || {})) {
+          aut.transitions[current][k] = v;
+        }
+      }
+    }
+  }
+
+  function collectLeaves(node, current, aut) {
+    if (node.type === 'End') return [current];
+    if (node.type === 'Send' || node.type === 'Receive') {
+      const dir = node.type === 'Send' ? 'send' : 'receive';
+      const nxt = aut.transitions[current]?.[`${dir}:${node.label}`];
+      return nxt !== undefined ? [nxt] : [];
+    }
+    if (node.type === 'InternalChoice' || node.type === 'ExternalChoice') {
+      const dir = node.type === 'InternalChoice' ? 'send' : 'receive';
+      const leaves = [];
+      for (const [label, branch] of Object.entries(node.branches)) {
+        const nxt = aut.transitions[current]?.[`${dir}:${label}`];
+        if (nxt !== undefined) leaves.push(...collectLeaves(branch, nxt, aut));
+      }
+      return leaves;
+    }
+    if (node.type === 'Sequence') {
+      const ll = collectLeaves(node.left, current, aut);
+      const all = [];
+      for (const s of ll) all.push(...collectLeaves(node.right, s, aut));
+      return all;
+    }
+    if (node.type === 'Recursion') return collectLeaves(node.body, current, aut);
+    if (node.type === 'RecVar') return [current];
+    return [current];
+  }
+
+  const start = newState();
+  aut.initialState = start;
+  compile(node, start, {});
+  return aut;
+}
+
+// ── Monitor ──
+
+class Monitor {
+  constructor(protocolStr) {
+    const ast = parseProtocol(protocolStr);
+    this.aut = compileAST(ast);
+    this.currentState = this.aut.initialState;
+    this.halted = false;
+  }
+
+  get isTerminal() { return this.aut.terminalStates.has(this.currentState); }
+
+  getAvailableActions() {
+    if (this.halted) return [];
+    const trans = this.aut.transitions[this.currentState] || {};
+    return Object.keys(trans).map(k => {
+      const [dir, label] = k.split(':');
+      return { direction: dir, label, key: k };
+    });
+  }
+
+  send(label) { return this._step('send', label); }
+  receive(label) { return this._step('receive', label); }
+
+  _step(direction, label) {
+    if (this.halted) return { type: 'Blocked', reason: 'Monitor halted after violation' };
+    const key = `${direction}:${label}`;
+    const trans = this.aut.transitions[this.currentState] || {};
+    if (key in trans) {
+      this.currentState = trans[key];
+      return { type: 'Ok' };
+    }
+    const expected = Object.keys(trans).map(k => {
+      const [d, l] = k.split(':');
+      return `${d === 'send' ? '!' : '?'}${l}`;
+    });
+    this.halted = true;
+    return { type: 'Violation', expected, got: `${direction === 'send' ? '!' : '?'}${label}` };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Demo UI
+// ═══════════════════════════════════════════════════════════════
+
+const PRESETS = [
+  {
+    name: 'Flight Booking',
+    protocol: '!SearchFlights.?FlightResults.!PresentOptions.?UserApproval.!BookFlight.?BookingConfirmation.end',
+    wrongActions: [
+      { direction: 'send', label: 'BookFlight', desc: '!BookFlight (skip ahead)' },
+      { direction: 'receive', label: 'BookingConfirmation', desc: '?BookingConfirmation (skip ahead)' },
+    ]
+  },
+  {
+    name: 'Card Payment',
+    protocol: '!CreateCard.?{CardCreated.rec X.!Transaction.?{TransactionOK.X, SessionEnd}, CardError}.end',
+    wrongActions: [
+      { direction: 'send', label: 'Transaction', desc: '!Transaction (before card)' },
+      { direction: 'receive', label: 'TransactionOK', desc: '?TransactionOK (skip step)' },
+    ]
+  },
+  {
+    name: 'Tool Loop',
+    protocol: 'rec Loop.!Request.?{ToolCall.!ToolResult.Loop, FinalAnswer.end}',
+    wrongActions: [
+      { direction: 'receive', label: 'FinalAnswer', desc: '?FinalAnswer (skip request)' },
+      { direction: 'send', label: 'ToolResult', desc: '!ToolResult (skip tool call)' },
+    ]
+  }
+];
+
+let currentMonitor = null;
+let currentPreset = 0;
+let eventLog = [];
+
+function tokenizeProtocol(src) {
+  let html = '';
+  let i = 0;
+  while (i < src.length) {
+    if (src[i] === '!' || src[i] === '?') {
+      const cls = src[i] === '!' ? 'tok-send' : 'tok-recv';
+      html += `<span class="${cls}">${src[i]}</span>`;
+      i++;
+    } else if (src[i] === '.' || src[i] === '{' || src[i] === '}' || src[i] === ',') {
+      html += `<span class="tok-op">${src[i]}</span>`;
+      i++;
+    } else if (src.slice(i, i + 3) === 'rec' && (i + 3 >= src.length || !/[a-zA-Z0-9_]/.test(src[i + 3]))) {
+      html += `<span class="tok-kw">rec</span>`;
+      i += 3;
+    } else if (src.slice(i, i + 3) === 'end' && (i + 3 >= src.length || !/[a-zA-Z0-9_]/.test(src[i + 3]))) {
+      html += `<span class="tok-kw">end</span>`;
+      i += 3;
+    } else if (/[a-zA-Z0-9_]/.test(src[i])) {
+      let start = i;
+      while (i < src.length && /[a-zA-Z0-9_]/.test(src[i])) i++;
+      html += `<span class="tok-label">${src.slice(start, i)}</span>`;
+    } else if (src[i] === ' ') {
+      html += ' ';
+      i++;
+    } else {
+      html += src[i];
+      i++;
+    }
+  }
+  return html;
+}
+
+function loadPreset(idx) {
+  currentPreset = idx;
+  document.querySelectorAll('.demo-controls button').forEach((btn, i) => {
+    btn.classList.toggle('active', i === idx);
+  });
+  resetDemo();
+}
+
+function resetDemo() {
+  const preset = PRESETS[currentPreset];
+  currentMonitor = new Monitor(preset.protocol);
+  eventLog = [];
+  renderProtocol();
+  renderStateMachine();
+  renderActions();
+  renderLog();
+  updateStatus('ready', 'Ready — select an action to step through the protocol');
+}
+
+function renderProtocol() {
+  const preset = PRESETS[currentPreset];
+  document.getElementById('protocol-display').innerHTML = tokenizeProtocol(preset.protocol);
+}
+
+function renderStateMachine() {
+  const container = document.getElementById('state-machine');
+  const aut = currentMonitor.aut;
+  const visited = new Set();
+  const queue = [aut.initialState];
+  const edges = [];
+  const stateOrder = [];
+
+  // BFS to get states and edges
+  while (queue.length > 0) {
+    const s = queue.shift();
+    if (visited.has(s)) continue;
+    visited.add(s);
+    stateOrder.push(s);
+    const trans = aut.transitions[s] || {};
+    for (const [key, target] of Object.entries(trans)) {
+      const [dir, label] = key.split(':');
+      edges.push({ from: s, to: target, dir, label });
+      if (!visited.has(target)) queue.push(target);
+    }
+  }
+
+  let html = '';
+  const rendered = new Set();
+
+  for (const s of stateOrder) {
+    // Render node
+    const isCurrent = s === currentMonitor.currentState;
+    const isTerminal = aut.terminalStates.has(s);
+    const isError = currentMonitor.halted && isCurrent;
+    let cls = 'sm-node';
+    if (isError) cls += ' error';
+    else if (isCurrent) cls += ' current';
+    if (isTerminal) cls += ' terminal';
+    html += `<div class="${cls}">S${s}</div>`;
+
+    // Render outgoing edges
+    const outEdges = edges.filter(e => e.from === s);
+    for (const e of outEdges) {
+      const edgeKey = `${e.from}-${e.to}-${e.dir}-${e.label}`;
+      if (!rendered.has(edgeKey)) {
+        rendered.add(edgeKey);
+        const arrowCls = e.dir === 'send' ? 'send' : 'recv';
+        const prefix = e.dir === 'send' ? '!' : '?';
+        html += `<div class="sm-arrow">→ <span class="arrow-label ${arrowCls}">${prefix}${e.label}</span> →</div>`;
+      }
+    }
+  }
+
+  container.innerHTML = html;
+}
+
+function renderActions() {
+  const container = document.getElementById('action-buttons');
+  const actions = currentMonitor.getAvailableActions();
+  const preset = PRESETS[currentPreset];
+
+  if (currentMonitor.halted) {
+    container.innerHTML = '<div style="font-family: var(--font-mono); font-size: 12px; color: var(--accent-error); padding: 8px;">Monitor halted — no actions available</div>';
+    return;
+  }
+
+  if (currentMonitor.isTerminal && actions.length === 0) {
+    container.innerHTML = '<div style="font-family: var(--font-mono); font-size: 12px; color: var(--accent-recv); padding: 8px;">Protocol complete ✓</div>';
+    return;
+  }
+
+  let html = '';
+  for (const a of actions) {
+    const cls = a.direction === 'send' ? 'send-action' : 'recv-action';
+    const prefix = a.direction === 'send' ? '!' : '?';
+    html += `<button class="action-btn ${cls}" onclick="doAction('${a.direction}', '${a.label}')">${prefix}${a.label}</button>`;
+  }
+
+  // Add a wrong action button
+  const wrongAction = getWrongAction(actions, preset);
+  if (wrongAction) {
+    html += `<button class="action-btn wrong-action" onclick="doAction('${wrongAction.direction}', '${wrongAction.label}')" title="Try a violation">${wrongAction.desc}</button>`;
+  }
+
+  container.innerHTML = html;
+}
+
+function getWrongAction(validActions, preset) {
+  const validKeys = new Set(validActions.map(a => `${a.direction}:${a.label}`));
+  for (const wa of preset.wrongActions) {
+    if (!validKeys.has(`${wa.direction}:${wa.label}`)) return wa;
+  }
+  // Fallback
+  if (validActions.length > 0) {
+    const dir = validActions[0].direction === 'send' ? 'receive' : 'send';
+    const prefix = dir === 'send' ? '!' : '?';
+    return { direction: dir, label: 'WRONG', desc: `${prefix}WRONG (invalid)` };
+  }
+  return null;
+}
+
+function doAction(direction, label) {
+  const result = direction === 'send' ? currentMonitor.send(label) : currentMonitor.receive(label);
+  const prefix = direction === 'send' ? '!' : '?';
+
+  eventLog.push({ direction, label, result, prefix });
+  renderStateMachine();
+  renderActions();
+  renderLog();
+
+  if (result.type === 'Ok') {
+    if (currentMonitor.isTerminal && currentMonitor.getAvailableActions().length === 0) {
+      updateStatus('complete', 'Protocol completed successfully');
+    } else {
+      updateStatus('ok', `${prefix}${label} — accepted`);
+    }
+  } else if (result.type === 'Violation') {
+    updateStatus('violation', `Violation: got ${result.got}, expected [${result.expected.join(', ')}]`);
+  } else {
+    updateStatus('blocked', result.reason);
+  }
+}
+
+function renderLog() {
+  const container = document.getElementById('event-log');
+  if (eventLog.length === 0) {
+    container.innerHTML = '<div class="log-empty">Click an action to begin...</div>';
+    return;
+  }
+
+  let html = '';
+  for (let i = 0; i < eventLog.length; i++) {
+    const e = eventLog[i];
+    const cls = e.result.type.toLowerCase();
+    const icon = e.result.type === 'Ok' ? '✓' : e.result.type === 'Violation' ? '✗' : '—';
+
+    let text = '';
+    if (e.result.type === 'Ok') {
+      text = `<span class="action">${e.prefix}${e.label}</span> <strong>→ Ok</strong>`;
+    } else if (e.result.type === 'Violation') {
+      text = `<span class="action">${e.prefix}${e.label}</span> <strong>→ Violation</strong> expected <span class="expected">${e.result.expected.join(', ')}</span>`;
+    } else {
+      text = `<span class="action">${e.prefix}${e.label}</span> <strong>→ Blocked</strong>`;
+    }
+
+    html += `<div class="log-entry ${cls}"><span class="log-index">${i + 1}</span><span class="log-icon">${icon}</span><span class="log-text">${text}</span></div>`;
+  }
+
+  container.innerHTML = html;
+  container.scrollTop = container.scrollHeight;
+}
+
+function updateStatus(type, msg) {
+  const el = document.getElementById('demo-status');
+  el.className = `demo-status status-${type}`;
+  el.innerHTML = `<div class="status-dot"></div><span>${msg}</span>`;
+}
+
+// ── Scroll reveal ──
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) entry.target.classList.add('visible');
+  });
+}, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+// Init
+loadPreset(0);
+</script>
+</body>
+</html>
