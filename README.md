@@ -174,6 +174,13 @@ while True:
         messages.append(tool_result_msg(tc.id, result))
 ```
 
+## Research
+
+This work is based on the theory developed in:
+
+> Christian Bartolo Burlò, Adrian Francalanza, Alceste Scalas. **"On the Monitorability of Session Types, in Theory and in Practice"**. *35th European Conference on Object-Oriented Programming (ECOOP 2021)*, pp. 20:1–20:30, Schloss Dagstuhl, 2021.
+> [[PDF]](https://orbit.dtu.dk/files/261948257/LIPIcs_ECOOP_2021_20.pdf) [[Google Scholar]](https://scholar.google.com/citations?view_op=view_citation&hl=en&user=oxv-4o8AAAAJ&citation_for_view=oxv-4o8AAAAJ:9yKSN-GCB0IC)
+
 ## Architecture
 
 ```
