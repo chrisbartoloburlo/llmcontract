@@ -265,6 +265,88 @@ nav .nav-links a:hover, nav .nav-links a.active { color: var(--text-primary); }
   margin-top: 4px;
 }
 
+.mcp-help-toggle {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  background: none;
+  border: none;
+  padding: 0;
+  margin-top: 6px;
+  display: inline-block;
+}
+.mcp-help-toggle:hover { color: var(--text-secondary); }
+
+.mcp-help {
+  display: none;
+  margin-top: 8px;
+  padding: 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+.mcp-help.open { display: block; }
+
+.mcp-help h4 {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+  margin: 10px 0 4px;
+}
+.mcp-help h4:first-child { margin-top: 0; }
+
+.mcp-help code {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
+.mcp-help pre {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+  margin: 4px 0 8px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-primary);
+}
+
+.mcp-help .copy-cmd {
+  position: relative;
+  cursor: pointer;
+}
+.mcp-help .copy-cmd:hover { border-color: var(--mb-accent-ink); }
+.mcp-help .copy-cmd::after {
+  content: 'click to copy';
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  font-size: 9px;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+.mcp-help .copy-cmd[data-copied]::after {
+  content: 'copied!';
+  color: var(--accent-send);
+}
+
 /* ── Tool Input ─── */
 .tool-input-row {
   display: flex;
@@ -724,6 +806,35 @@ nav .nav-links a:hover, nav .nav-links a.active { color: var(--text-primary); }
             <label><input type="radio" name="mcp-transport" value="streamable-http"> Streamable HTTP</label>
           </div>
           <div id="mcp-feedback"></div>
+          <button class="mcp-help-toggle" onclick="toggleMCPHelp()">How do I connect?</button>
+          <div class="mcp-help" id="mcp-help">
+            <p>MCP servers typically use <strong>stdio</strong> transport. To connect from the browser, wrap them with <code>supergateway</code> which bridges stdio to SSE with CORS.</p>
+
+            <h4>Supabase</h4>
+            <pre class="copy-cmd" onclick="copyCmd(this)">npx -y supergateway --cors \
+  --stdio "npx -y @supabase/mcp-server-supabase@latest \
+  --access-token YOUR_SUPABASE_TOKEN" \
+  --port 3000</pre>
+
+            <h4>GitHub</h4>
+            <pre class="copy-cmd" onclick="copyCmd(this)">npx -y supergateway --cors \
+  --stdio "npx -y @modelcontextprotocol/server-github" \
+  --port 3000 \
+  --env GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxx</pre>
+
+            <h4>Stripe</h4>
+            <pre class="copy-cmd" onclick="copyCmd(this)">npx -y supergateway --cors \
+  --stdio "npx -y @stripe/mcp --tools=all \
+  --api-key sk_xxx" \
+  --port 3000</pre>
+
+            <h4>Any stdio MCP server</h4>
+            <pre class="copy-cmd" onclick="copyCmd(this)">npx -y supergateway --cors \
+  --stdio "your-mcp-server-command" \
+  --port 3000</pre>
+
+            <p style="margin-top:6px;">Then enter <code>http://localhost:3000/sse</code> above and click <strong>Connect</strong>.</p>
+          </div>
         </div>
 
         <div class="tool-input-row">
@@ -795,13 +906,13 @@ nav .nav-links a:hover, nav .nav-links a.active { color: var(--text-primary); }
 // Protocol Builder — Standalone vanilla JS implementation
 // ═══════════════════════════════════════════════════════════════
 
-let nextId = 0;
+var nextId = 0;
 const uid = () => `s${++nextId}`;
 
 // ── State ──────────────────────────────────────────────────────
-let tools = [];        // [{name: string}]
-let steps = [];        // ProtocolStep[]
-let insertTarget = null; // {choiceStepId, branchId} | null
+var tools = [];        // [{name: string}]
+var steps = [];        // ProtocolStep[]
+var insertTarget = null; // {choiceStepId, branchId} | null
 
 // ── Step Types ─────────────────────────────────────────────────
 // { id, type:'action', direction:'send'|'receive', label, pairId?, isRecRef?, recVar? }
@@ -1617,6 +1728,23 @@ function loadFromURL() {
     // so just load the tools for now
     return true;
   } catch(e) { return false; }
+}
+
+// ── MCP Help ───────────────────────────────────────────────────
+
+function toggleMCPHelp() {
+  const el = document.getElementById('mcp-help');
+  el.classList.toggle('open');
+  const btn = el.previousElementSibling;
+  btn.textContent = el.classList.contains('open') ? 'Hide instructions' : 'How do I connect?';
+}
+
+function copyCmd(el) {
+  const text = el.innerText.trim();
+  navigator.clipboard.writeText(text);
+  el.style.borderColor = 'var(--mb-accent-ink)';
+  el.setAttribute('data-copied', 'true');
+  setTimeout(() => { el.style.borderColor = ''; el.removeAttribute('data-copied'); }, 1500);
 }
 
 // ── MCP Connection ─────────────────────────────────────────────
