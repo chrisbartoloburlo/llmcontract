@@ -11,3 +11,10 @@ __all__ = [
     "ToolCall",
     "ProtocolViolationError",
 ]
+
+# Lazy import for optional langfuse dependency
+def __getattr__(name: str):
+    if name == "LangfuseMonitor":
+        from llmcontract.integration.langfuse import LangfuseMonitor
+        return LangfuseMonitor
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

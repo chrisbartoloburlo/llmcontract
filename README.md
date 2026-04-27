@@ -174,6 +174,39 @@ while True:
         messages.append(tool_result_msg(tc.id, result))
 ```
 
+## Langfuse Integration
+
+Track protocol compliance in [Langfuse](https://langfuse.com) — every send/receive is recorded as a guardrail observation with a pass/fail score.
+
+```bash
+pip install llmsessioncontract[langfuse]
+```
+
+```python
+from langfuse import get_client
+from llmcontract.integration.langfuse import LangfuseMonitor
+
+langfuse = get_client()
+
+with langfuse.start_as_current_observation(name="agent-run") as trace:
+    monitor = LangfuseMonitor(
+        protocol="!Request.?{ToolCall.!ToolResult.end, FinalAnswer.end}",
+        langfuse=langfuse,
+    )
+
+    monitor.send("Request")       # guardrail: ok ✓
+    monitor.receive("ToolCall")   # guardrail: ok ✓
+    monitor.send("ToolResult")    # guardrail: ok ✓
+    monitor.send("ExtraCall")     # guardrail: VIOLATION ✗
+
+langfuse.flush()
+```
+
+Each step appears as a guardrail observation in your Langfuse trace with:
+- **Input**: the action attempted, direction, label, protocol
+- **Output**: `passed: true/false`, violation details if applicable
+- **Score**: `protocol_compliance` (boolean) for filtering and analytics
+
 ## Research
 
 This work is based on the theory developed in:
@@ -193,6 +226,7 @@ DSL string ──▶ Parser ──▶ AST ──▶ FSM Compiler ──▶ Autom
 - **Monitor** (`llmcontract.monitor.monitor`) — steps through the automaton on each `send`/`receive` call, returning `Ok`, `Violation`, or `Blocked`
 - **MonitoredClient** (`llmcontract.integration.client`) — wraps any LLM client call with automatic protocol checks
 - **ToolMiddleware** (`llmcontract.integration.middleware`) — intercepts tool execution with protocol checks
+- **LangfuseMonitor** (`llmcontract.integration.langfuse`) — records protocol events as Langfuse guardrail observations
 
 ## Tests
 
