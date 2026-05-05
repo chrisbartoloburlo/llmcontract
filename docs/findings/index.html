@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Findings — llmcontract</title>
+<meta name="description" content="Two case studies measuring how often LLM agents violate documented interaction protocols at runtime. Headline: across 90 trajectories driving the Playwright MCP server, frontier agents fail the canonical usage pattern in 9–29% of runs — and the failure modes scale opposite directions with model capability.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --mb-ink: #121212;
+  --mb-paper: #F1F1F1;
+  --mb-accent: #C4EF7A;
+  --mb-accent-ink: #527200;
+  --mb-hot: #FC4C3B;
+  --mb-ai: oklch(0.65 0.15 280);
+  --bg-deep: var(--mb-paper);
+  --bg-surface: #E6E6E6;
+  --bg-elevated: #DBDBDB;
+  --bg-card: #D0D0D0;
+  --border: rgba(18, 18, 18, 0.15);
+  --border-bright: rgba(18, 18, 18, 0.30);
+  --text-primary: var(--mb-ink);
+  --text-secondary: rgba(18, 18, 18, 0.55);
+  --text-dim: rgba(18, 18, 18, 0.32);
+  --accent-send: var(--mb-accent-ink);
+  --accent-send-dim: rgba(196, 239, 122, 0.30);
+  --accent-recv: var(--mb-ai);
+  --accent-recv-dim: rgba(140, 80, 220, 0.10);
+  --accent-error: var(--mb-hot);
+  --accent-error-dim: rgba(252, 76, 59, 0.10);
+  --accent-warn: #9a6700;
+  --font-mono: 'Space Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif;
+  --radius: 4px;
+  --radius-lg: 8px;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  line-height: 1.65;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 60px 60px;
+  opacity: 0.12;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.container {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0 24px;
+  position: relative;
+  z-index: 1;
+}
+
+.container-wide {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 24px;
+  position: relative;
+  z-index: 1;
+}
+
+nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: rgba(241, 241, 241, 0.88);
+  backdrop-filter: blur(16px);
+  border-bottom: 1.5px solid rgba(18, 18, 18, 0.12);
+  padding: 0 24px;
+}
+nav .nav-inner {
+  max-width: 1120px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 0;
+}
+nav .logo {
+  font-family: var(--font-body);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  text-decoration: none;
+}
+nav .logo span { color: var(--accent-send); }
+nav .nav-links {
+  display: flex;
+  gap: 28px;
+  list-style: none;
+}
+nav .nav-links a {
+  color: var(--text-secondary);
+  font-size: 14px;
+  text-decoration: none;
+  transition: color 0.15s;
+}
+nav .nav-links a:hover { color: var(--text-primary); }
+
+article {
+  padding: 140px 0 100px;
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+}
+
+h1 {
+  font-family: var(--font-body);
+  font-size: clamp(36px, 5vw, 56px);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+  margin-bottom: 24px;
+}
+
+h1 .hl { color: var(--accent-send); }
+
+.dek {
+  font-size: 19px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  margin-bottom: 32px;
+}
+
+.byline {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-dim);
+  padding-bottom: 32px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 48px;
+}
+
+article h2 {
+  font-family: var(--font-body);
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  margin: 56px 0 16px;
+}
+
+article h3 {
+  font-family: var(--font-body);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin: 36px 0 12px;
+}
+
+article p {
+  font-size: 17px;
+  line-height: 1.65;
+  margin-bottom: 18px;
+}
+
+article p strong {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+article a {
+  color: var(--accent-send);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+article a:hover {
+  text-decoration-thickness: 2px;
+}
+
+article code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--bg-surface);
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+
+article pre {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 18px 0;
+}
+
+article pre code {
+  background: none;
+  padding: 0;
+  border: none;
+}
+
+.tok-send { color: var(--accent-send); font-weight: 700; }
+.tok-recv { color: var(--accent-recv); font-weight: 700; }
+.tok-op   { color: var(--text-dim); }
+.tok-kw   { color: var(--accent-warn); font-style: italic; }
+.tok-label { color: var(--text-primary); }
+.tok-mut  { color: var(--accent-error); font-weight: 700; }
+
+.callout {
+  background: var(--bg-surface);
+  border-left: 3px solid var(--accent-send);
+  padding: 20px 24px;
+  margin: 28px 0;
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.callout p { margin-bottom: 0; font-size: 16px; }
+
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+  margin: 28px 0 36px;
+}
+
+.stat {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 22px 22px;
+}
+
+.stat .num {
+  font-family: var(--font-body);
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+  color: var(--accent-error);
+}
+.stat .num.neutral { color: var(--text-primary); }
+.stat .lbl {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-top: 8px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 28px 0;
+  font-size: 14px;
+}
+
+th, td {
+  padding: 12px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+th {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+td.num {
+  font-family: var(--font-mono);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+td.bad { color: var(--accent-error); font-weight: 600; }
+td.good { color: var(--accent-send); }
+
+.share-bar {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 48px 0 0;
+  padding: 24px 0;
+  border-top: 1px solid var(--border);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 14px;
+  padding: 10px 18px;
+  border-radius: var(--radius);
+  text-decoration: none;
+  transition: all 0.15s;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.btn-primary {
+  background: var(--text-primary);
+  color: var(--bg-deep);
+}
+.btn-primary:hover { background: #2a2a2a; text-decoration: none !important; }
+.btn-secondary {
+  background: transparent;
+  color: var(--text-primary);
+  border-color: var(--border-bright);
+}
+.btn-secondary:hover { background: var(--bg-surface); text-decoration: none !important; }
+
+footer {
+  padding: 48px 0;
+  text-align: center;
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+footer a { color: var(--text-secondary); text-decoration: none; }
+footer a:hover { color: var(--text-primary); }
+
+@media (max-width: 720px) {
+  nav .nav-links { display: none; }
+  article { padding: 100px 0 60px; }
+  h1 { font-size: 36px; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a href="../" class="logo">llmcontract<span>.</span></a>
+    <ul class="nav-links">
+      <li><a href="../#findings">Findings</a></li>
+      <li><a href="../#demo">Demo</a></li>
+      <li><a href="../builder/">Builder</a></li>
+      <li><a href="../#research">Research</a></li>
+      <li><a href="https://github.com/chrisbartoloburlo/llmcontract" target="_blank">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<article>
+  <div class="container">
+
+    <div class="eyebrow">Findings · May 2026</div>
+
+    <h1>LLM agents <span class="hl">don't follow</span> the protocols their tools document.</h1>
+
+    <p class="dek">
+      We measured it. Two case studies, one runtime monitor, two surprises that single-number framings would bury. Here's what we found and how to reproduce it.
+    </p>
+
+    <div class="byline">
+      Chris Bartolo Burlò · llmcontract.dev
+    </div>
+
+    <h2>The premise</h2>
+
+    <p>
+      Most evaluation of LLM agents is <strong>outcome-based</strong>: did the agent reach the right end-state? Tau-bench hashes the final database. SWE-bench checks whether the patch passes tests. Browser-automation benchmarks check the page title. <strong>None of these can see whether the agent followed the documented procedure to get there.</strong>
+    </p>
+
+    <p>
+      That gap matters when the procedure is the policy &mdash; "obtain explicit user confirmation before charging the customer," "snapshot the page before targeting an element," "always begin a transaction before mutating." The thing the API enforces is the technical state machine. The thing the policy enforces is everything above it.
+    </p>
+
+    <p>
+      <a href="https://github.com/chrisbartoloburlo/llmcontract">llmcontract</a> is a runtime monitor that checks an agent's events against a session-type contract. We applied it to two real settings.
+    </p>
+
+    <hr style="border: 0; border-top: 1px solid var(--border); margin: 48px 0;">
+
+    <h2>Case 1 &middot; tau2-bench</h2>
+
+    <p style="font-family: var(--font-mono); font-size: 13px; color: var(--text-secondary); margin-top: -8px;">
+      retail + airline customer-service agents · 4 frontier models · 2,624 trajectories · zero new model calls
+    </p>
+
+    <div class="stat-row">
+      <div class="stat">
+        <div class="num">11 / 1,755</div>
+        <div class="lbl">passing trajectories with violations</div>
+      </div>
+      <div class="stat">
+        <div class="num neutral">0.6%</div>
+        <div class="lbl">caught despite the eval scoring them passing</div>
+      </div>
+      <div class="stat">
+        <div class="num neutral">2,624</div>
+        <div class="lbl">total trajectories replayed</div>
+      </div>
+    </div>
+
+    <p>
+      <a href="https://github.com/sierra-research/tau2-bench" target="_blank">tau2-bench</a> ships ~2,600 published agent trajectories across retail and airline domains for four frontier models (Claude Sonnet, GPT-4.1 family, o4-mini). Tau2's reward function checks whether the agent's actions reach the right final database state. It does <em>not</em> check whether the agent followed the procedural rules in <code>policy.md</code>.
+    </p>
+
+    <p>
+      We encoded the most-cited rule from the retail and airline policies &mdash; <em>"before any action that updates the database, you must list the action details and obtain explicit user confirmation (yes) to proceed"</em> &mdash; as a session type and replayed every shipped trajectory through it.
+    </p>
+
+    <p>
+      <strong>11 of 1,755 trajectories that tau2 scored as passing</strong> mutated the database without ever obtaining the required confirmation. The agent acted, then asked. Or never asked at all. Sample (gpt-4.1, retail task 44, <code>reward = 1.0</code>):
+    </p>
+
+<pre><code>[16] assistant calls modify_pending_order_items(...)        <span class="tok-mut">⚠ mutation</span>
+[18] assistant: "You ordered a Desk Lamp ($153.23). The cheapest is $135.24..."
+[19] user:      "Yes, please go ahead and make the change."
+[20] assistant calls modify_pending_order_items(...)  (fails &mdash; order no longer pending)</code></pre>
+
+    <p>
+      The agent executed the swap, <em>then</em> described it, <em>then</em> asked the user, <em>then</em> tried to execute it again (which failed because the first call had moved the order out of pending). tau2 still scored it as passing because the final database hash matched the expected end-state.
+    </p>
+
+    <p>
+      0.6% is a lower bound on one invariant. Adding more invariants (transfer-handoff ordering, single-tool-call-per-turn, single-user-per-conversation, same-payment-method-for-refund) would surface more.
+    </p>
+
+    <p>
+      <a href="https://github.com/chrisbartoloburlo/llmcontract-tau2"><strong>Code &amp; data &rarr;</strong></a> &nbsp;·&nbsp; <a href="https://github.com/sierra-research/tau2-bench/issues/298" target="_blank">discussion at sierra-research/tau2-bench#298</a>
+    </p>
+
+    <hr style="border: 0; border-top: 1px solid var(--border); margin: 56px 0 48px;">
+
+    <h2>Case 2 &middot; @playwright/mcp</h2>
+
+    <p style="font-family: var(--font-mono); font-size: 13px; color: var(--text-secondary); margin-top: -8px;">
+      LLM agents driving Microsoft's Playwright MCP server · 3 models · 90 trajectories · $7.97 spent
+    </p>
+
+    <div class="stat-row">
+      <div class="stat">
+        <div class="num">8 / 90</div>
+        <div class="lbl">violate snap-before-interact (9%)</div>
+      </div>
+      <div class="stat">
+        <div class="num">26 / 90</div>
+        <div class="lbl">violate stay-on-snapshot-refs (29%)</div>
+      </div>
+      <div class="stat">
+        <div class="num neutral">$7.97</div>
+        <div class="lbl">total Anthropic API spend</div>
+      </div>
+    </div>
+
+    <p>
+      <a href="https://github.com/microsoft/playwright-mcp" target="_blank">@playwright/mcp</a> documents two procedural rules in its README that aren't enforced by the API:
+    </p>
+
+    <ol style="margin: 12px 0 18px 24px; font-size: 17px; line-height: 1.65;">
+      <li><strong>snapshot-before-interact</strong> &mdash; interaction tools (<code>browser_click</code>, <code>browser_type</code>, &hellip;) take a <code>target</code> "from the page snapshot." Take the snapshot first.</li>
+      <li><strong>stay-on-snapshot-refs</strong> &mdash; once you have a snapshot, target elements via the snapshot's opaque refs (<code>e17</code>, <code>e811</code>), not raw CSS selectors.</li>
+    </ol>
+
+    <p>
+      We ran 15 browser tasks through three Claude models (Haiku 4.5, Sonnet 4.6, Opus 4.7), 2 trials each, and replayed the resulting 90 trajectories through both invariants.
+    </p>
+
+    <h3>The model gradient (the surprise)</h3>
+
+    <p>
+      The two invariants surface failure modes that scale <strong>opposite directions</strong> with capability:
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Model</th>
+          <th>snap-before-interact</th>
+          <th>stay-on-snapshot-refs</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>claude-haiku-4-5</code></td>
+          <td class="num good">0 / 30 (0%)</td>
+          <td class="num bad">17 / 30 (57%)</td>
+        </tr>
+        <tr>
+          <td><code>claude-sonnet-4-6</code></td>
+          <td class="num">4 / 30 (13%)</td>
+          <td class="num">8 / 30 (27%)</td>
+        </tr>
+        <tr>
+          <td><code>claude-opus-4-7</code></td>
+          <td class="num">4 / 30 (13%)</td>
+          <td class="num good">1 / 30 (3%)</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>
+      <strong>Haiku</strong> snapshots religiously on every task &mdash; zero violations of the first invariant &mdash; but then ignores the snapshot's structured data and uses CSS selectors anyway in <strong>57%</strong> of trajectories. Does the ritual perfectly without using the result.
+    </p>
+
+    <p>
+      <strong>Opus</strong> is the inverse: it sometimes skips the snapshot entirely (13%) but when it does take one, almost never breaks the protocol after &mdash; only <strong>3%</strong> stay-on-refs violations. Skips the ritual when confident, executes correctly when it commits.
+    </p>
+
+    <p>
+      <strong>Sonnet</strong> sits between on both axes (13% / 27%).
+    </p>
+
+    <div class="callout">
+      <p>
+        Smaller models follow process more rigidly but lose the plot under longer interaction. Larger models reason about whether the process step is needed and can drop it strategically &mdash; but when they do take a snapshot, they actually <em>use</em> it. <strong>Single-headline-number framings would bury this gradient entirely.</strong>
+      </p>
+    </div>
+
+    <h3>What violations look like</h3>
+
+    <p><strong>stay-on-snapshot-refs</strong> &mdash; Haiku, wikipedia search:</p>
+
+<pre><code>[ 0] browser_navigate(url=...)
+[ 1] browser_snapshot()                            <span style="color: var(--text-dim);">← snapshots</span>
+[ 2] browser_click(target='e23')                   <span style="color: var(--text-dim);">← uses ref, ok</span>
+[ 3] browser_type(target="input[name='search']")   <span class="tok-mut">⚠ reverts to CSS selector</span></code></pre>
+
+    <p>
+      The agent has the snapshot's element refs in hand and chooses to bypass them. Selectors race-condition under page mutation; refs come with locators the server has just verified. The literal README permits selectors; the canonical idiom doesn't.
+    </p>
+
+    <p>
+      <a href="https://github.com/chrisbartoloburlo/llmcontract-playwright-mcp"><strong>Code, full per-task table, and the 90 raw trajectories &rarr;</strong></a>
+    </p>
+
+    <hr style="border: 0; border-top: 1px solid var(--border); margin: 56px 0 48px;">
+
+    <h2>Why this matters</h2>
+
+    <p>
+      The interesting failure modes of LLM agents live <strong>above the API</strong>. Stripe's API will happily charge a card if you call <code>payment_intents.confirm</code>; it has no way to know whether the user agreed to that charge. Stripe enforces the agent&harr;Stripe contract. llmcontract enforces the user&harr;agent&harr;Stripe contract &mdash; the part that says "the agent must have explicit consent to charge $50, not just permission from Stripe to charge."
+    </p>
+
+    <p>
+      That distinction maps directly onto the regulatory question. The EU AI Act's <strong>Article 12</strong> (logging) and <strong>Article 15</strong> (accuracy &amp; robustness) both ask for evidence that high-risk AI systems followed documented procedures. Outcome-based eval can't supply that evidence; runtime conformance monitoring can.
+    </p>
+
+    <p>
+      The session-type formalism comes with <a href="https://orbit.dtu.dk/files/261948257/LIPIcs_ECOOP_2021_20.pdf" target="_blank">30+ years of monitorability theory</a>. The novelty isn't the formalism &mdash; it's wiring it to the rich, messy event streams of LLM agents through a deliberate <em>projection</em> layer that bridges natural-language inputs and structured tool calls.
+    </p>
+
+    <h2>Reproduce</h2>
+
+    <p>Both case studies are end-to-end reproducible from a clean checkout. Trajectories are checked into each repo so the analysis runs without re-calling any model.</p>
+
+<pre><code>pip install llmsessioncontract
+
+# Case 1 &mdash; tau2 replay (no model calls)
+git clone https://github.com/chrisbartoloburlo/llmcontract-tau2
+git clone https://github.com/sierra-research/tau2-bench /tmp/tau2-bench
+cd llmcontract-tau2
+PYTHONPATH=. python3 src/sweep.py /tmp/tau2-bench/data/tau2/results/final/ retail
+
+# Case 2 &mdash; playwright MCP (re-runs the sweep on shipped trajectories)
+git clone https://github.com/chrisbartoloburlo/llmcontract-playwright-mcp
+cd llmcontract-playwright-mcp
+PYTHONPATH=. python3 -m src.sweep trajectories/v1</code></pre>
+
+    <p>
+      <a href="../builder/"><strong>Try the protocol builder &rarr;</strong></a> &mdash; the same DSL these case studies use, but interactive, with live FSM preview and Python integration export.
+    </p>
+
+    <h2>What's next</h2>
+
+    <p>The bottleneck has shifted from <em>do we have the data?</em> to <em>does anyone know about it?</em> Three things would move the work meaningfully:</p>
+
+    <ul style="margin: 12px 0 18px 24px; font-size: 17px; line-height: 1.65;">
+      <li><strong>Production integration.</strong> The natural target is an open-source MCP host (Goose, Cline, Continue) that wants runtime monitoring as a first-class feature. If you maintain one, get in touch.</li>
+      <li><strong>More invariants on existing case studies.</strong> Single-tool-call-per-turn, transfer-handoff ordering, and amount-matches-description are obvious next encodings. Cheap to add, would push the aggregate violation rate up.</li>
+      <li><strong>Cross-vendor data.</strong> The model gradient on Playwright is Anthropic-only. Adding GPT-4.1 and Gemini trajectories would test whether the gradient is intrinsic to capability or specific to a model family.</li>
+    </ul>
+
+    <p style="font-size: 16px; color: var(--text-secondary); margin-top: 24px;">
+      I'd love to hear from anyone working on agent observability, MCP-based agents, or AI Act-grade conformance evidence. The library and the case studies are MIT-licensed; the conversations are free.
+    </p>
+
+    <div class="share-bar">
+      <a class="btn btn-primary" href="https://github.com/chrisbartoloburlo/llmcontract" target="_blank">View library on GitHub</a>
+      <a class="btn btn-secondary" href="https://github.com/chrisbartoloburlo/llmcontract-tau2" target="_blank">tau2 case study</a>
+      <a class="btn btn-secondary" href="https://github.com/chrisbartoloburlo/llmcontract-playwright-mcp" target="_blank">Playwright MCP case study</a>
+      <a class="btn btn-secondary" href="../builder/">Build a protocol</a>
+    </div>
+
+  </div>
+</article>
+
+<footer>
+  <div class="container-wide">
+    <p>llmcontract &mdash; runtime protocol monitoring for LLM agents</p>
+    <p style="margin-top: 8px;"><a href="https://github.com/chrisbartoloburlo/llmcontract" target="_blank">github.com/chrisbartoloburlo/llmcontract</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
