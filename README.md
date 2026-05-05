@@ -251,7 +251,8 @@ The skill validates each draft DSL against `llmcontract`'s parser, so anything i
 
 ## Case Studies
 
-- **[`llmcontract-tau2`](https://github.com/chrisbartoloburlo/llmcontract-tau2)** — Standalone replay of [tau2-bench](https://github.com/sierra-research/tau2-bench)'s shipped trajectories through `Monitor`. Headline: 11/1755 (0.6%) of trajectories that tau2 scored as passing violate the documented "obtain user confirmation before mutating the database" policy. Discussion upstream: [tau2-bench#298](https://github.com/sierra-research/tau2-bench/issues/298).
+- **[`llmcontract-tau2`](https://github.com/chrisbartoloburlo/llmcontract-tau2)** — *user ↔ agent layer.* Standalone replay of [tau2-bench](https://github.com/sierra-research/tau2-bench)'s shipped trajectories through `Monitor`. Headline: 11/1755 (0.6%) of trajectories that tau2 scored as passing violate the documented "obtain user confirmation before mutating the database" policy. Discussion upstream: [tau2-bench#298](https://github.com/sierra-research/tau2-bench/issues/298).
+- **[`llmcontract-playwright-mcp`](https://github.com/chrisbartoloburlo/llmcontract-playwright-mcp)** — *agent ↔ tool layer.* 90-trajectory sweep across Claude Haiku 4.5 / Sonnet 4.6 / Opus 4.7 driving [`@playwright/mcp`](https://github.com/microsoft/playwright-mcp), checked against two invariants from the server's documented usage. Headline: 9% violate `snap-before-interact`, 29% violate `stay-on-snapshot-refs` — and the failure modes scale opposite directions with model capability (Haiku snapshots religiously but ignores the snapshot 57% of the time; Opus skips the snapshot 13% of the time but follows through cleanly when it commits).
 
 ## Research
 
