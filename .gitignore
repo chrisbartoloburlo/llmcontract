@@ -4,3 +4,8 @@ __pycache__/
 dist/
 build/
 .pytest_cache/
+
+# Local env files (API keys, etc.) — never commit these.
+.env
+.env.*
+!.env.example
