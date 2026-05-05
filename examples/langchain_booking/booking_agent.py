@@ -24,11 +24,13 @@ Run with `ANTHROPIC_API_KEY` exported. Demo 2 doesn't need the API key.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import Any, Iterable, Iterator
 
 from llmcontract import (
     Monitor,
@@ -58,19 +60,99 @@ def _load_dotenv(path: Path = Path(".env")) -> None:
 _load_dotenv(Path(__file__).parent / ".env")
 
 
-# ── Protocol ─────────────────────────────────────────────────
+# ── Tools, labels, and protocol — all derived from the @tool defs ────
 
-PROTOCOL = (
-    "!SearchFlights.?FlightResults.!PresentOptions.?UserApproval"
-    ".!BookFlight.?BookingConfirmation.end"
+# A tiny convention: each LangChain tool's docstring may include a line
+# `Protocol response: <Label>` that names the protocol-side label fired
+# when the tool returns. If absent, we fall back to `<SendLabel>Result`.
+# The send label is always the tool's name in PascalCase.
+
+from langchain_core.tools import tool
+
+
+@tool
+def search_flights(origin: str, destination: str, date: str) -> str:
+    """Search available flights matching the origin, destination, and date.
+
+    Protocol response: FlightResults
+
+    Args:
+        origin: 3-letter airport code, e.g. "SFO".
+        destination: 3-letter airport code, e.g. "JFK".
+        date: ISO date, e.g. "2026-05-10".
+    """
+    return _search(origin, destination, date)
+
+
+@tool
+def book_flight(flight_id: str, passenger: str) -> str:
+    """Reserve a seat on the chosen flight.
+
+    Protocol response: BookingConfirmation
+    """
+    return _book(flight_id, passenger)
+
+
+_RESPONSE_RE = re.compile(r"Protocol response:\s*(\w+)", re.IGNORECASE)
+
+
+def _tool_send_label(t) -> str:
+    """`search_flights` → `SearchFlights`."""
+    return "".join(p.title() for p in t.name.split("_"))
+
+
+def _tool_recv_label(t) -> str:
+    """Pulled from the tool's docstring `Protocol response: ...` annotation,
+    or derived as `<SendLabel>Result` if absent."""
+    desc = getattr(t, "description", "") or ""
+    m = _RESPONSE_RE.search(desc)
+    return m.group(1) if m else _tool_send_label(t) + "Result"
+
+
+def _tool_labels(t) -> tuple[str, str]:
+    return _tool_send_label(t), _tool_recv_label(t)
+
+
+def linear_protocol(*events: object) -> str:
+    """Build a linear session-type DSL from a sequence of events.
+
+    Each event is one of:
+      * a LangChain tool (becomes ``!SendLabel.?RecvLabel``, derived from
+        the tool's name and ``Protocol response`` docstring annotation),
+      * an ``"!Label"`` or ``"?Label"`` string with explicit direction,
+      * a bare ``"Label"`` string (defaults to ``!Label``).
+
+    Always appends ``.end`` to terminate the protocol.
+    """
+    parts: list[str] = []
+    for ev in events:
+        if hasattr(ev, "name") and hasattr(ev, "description"):
+            s, r = _tool_labels(ev)
+            parts.extend([f"!{s}", f"?{r}"])
+        elif isinstance(ev, str):
+            if ev.startswith(("!", "?")):
+                parts.append(ev)
+            else:
+                parts.append(f"!{ev}")
+        else:
+            raise TypeError(f"unknown event in linear_protocol: {type(ev)}")
+    return ".".join(parts) + ".end"
+
+
+_TOOLS = [search_flights, book_flight]
+
+# Tool name → (send-label, recv-label) — derived once at module load.
+TOOL_LABELS: dict[str, tuple[str, str]] = {t.name: _tool_labels(t) for t in _TOOLS}
+
+# Protocol DSL — derived from the tool sequence + the user-side events
+# that aren't tool-backed (PresentOptions is a text response from the
+# agent; UserApproval is a user reply).
+PROTOCOL = linear_protocol(
+    search_flights,    # !SearchFlights.?FlightResults
+    "PresentOptions",  # !PresentOptions  (agent text)
+    "?UserApproval",   # ?UserApproval    (user reply, projected)
+    book_flight,       # !BookFlight.?BookingConfirmation
 )
-
-# Tool name → (send-label fired when the agent calls it,
-#              receive-label fired when the result comes back).
-TOOL_LABELS = {
-    "search_flights": ("SearchFlights", "FlightResults"),
-    "book_flight": ("BookFlight", "BookingConfirmation"),
-}
 
 
 # ── User-side projection ─────────────────────────────────────
@@ -126,7 +208,35 @@ def _book(flight_id: str, passenger: str) -> str:
 # ── Monitor wiring helpers ───────────────────────────────────
 
 
-def _step(monitor: Monitor, kind: str, label: str, *, fail_on_violation: bool = True) -> bool:
+@dataclass
+class EventLog:
+    """Optional structured event logger for batch runs.
+
+    When attached, every conversational turn and monitor verdict gets
+    appended as a JSON record. Replay tools read these records to produce
+    aggregate violation statistics without needing to re-run anything.
+    """
+
+    out_path: Path | None = None
+    _records: list[dict[str, Any]] = field(default_factory=list)
+
+    def emit(self, **fields: Any) -> None:
+        self._records.append(fields)
+        if self.out_path:
+            self.out_path.parent.mkdir(parents=True, exist_ok=True)
+            with self.out_path.open("a") as fh:
+                fh.write(json.dumps(fields, default=str) + "\n")
+
+
+def _step(
+    monitor: Monitor,
+    kind: str,
+    label: str,
+    *,
+    fail_on_violation: bool = True,
+    log: EventLog | None = None,
+    quiet: bool = False,
+) -> bool:
     """Fire a monitor event, print the result, return True if the trajectory
     should continue. ``kind`` is "send" or "receive"."""
     if kind == "send":
@@ -135,22 +245,38 @@ def _step(monitor: Monitor, kind: str, label: str, *, fail_on_violation: bool = 
     else:
         result = monitor.receive(label)
         sym = "?"
+    verdict = type(result).__name__
+    expected = list(getattr(result, "expected", []) or [])
+    got = getattr(result, "got", None)
+    if log is not None:
+        log.emit(
+            type="monitor",
+            kind=kind,
+            label=label,
+            verdict=verdict,
+            expected=expected,
+            got=got,
+        )
     if isinstance(result, Ok):
-        print(f"    [monitor] {sym}{label} → Ok")
+        if not quiet:
+            print(f"    [monitor] {sym}{label} → Ok")
         return True
     if isinstance(result, Unrecognized):
-        print(
-            f"    [monitor] {sym}{label} → Unrecognized "
-            f"(state preserved, outer loop should clarify)"
-        )
+        if not quiet:
+            print(
+                f"    [monitor] {sym}{label} → Unrecognized "
+                f"(state preserved, outer loop should clarify)"
+            )
         return False
     if isinstance(result, Violation):
-        print(
-            f"    [monitor] {sym}{label} → Violation "
-            f"(expected={result.expected}, got={result.got})"
-        )
+        if not quiet:
+            print(
+                f"    [monitor] {sym}{label} → Violation "
+                f"(expected={result.expected}, got={result.got})"
+            )
         return not fail_on_violation
-    print(f"    [monitor] {sym}{label} → {type(result).__name__}: {result}")
+    if not quiet:
+        print(f"    [monitor] {sym}{label} → {verdict}: {result}")
     return False
 
 
@@ -158,30 +284,10 @@ def _step(monitor: Monitor, kind: str, label: str, *, fail_on_violation: bool = 
 
 
 def _build_lc_tools():
-    """Define the LangChain tools that the LLM will call.
-
-    Imported lazily so demo 2 (which doesn't need the API or LangChain)
-    can run without those dependencies installed.
-    """
-    from langchain_core.tools import tool
-
-    @tool
-    def search_flights(origin: str, destination: str, date: str) -> str:
-        """Search available flights matching the origin, destination, and date.
-
-        Args:
-            origin: 3-letter airport code, e.g. "SFO"
-            destination: 3-letter airport code, e.g. "JFK"
-            date: ISO date, e.g. "2026-05-10"
-        """
-        return _search(origin, destination, date)
-
-    @tool
-    def book_flight(flight_id: str, passenger: str) -> str:
-        """Reserve a seat on the chosen flight."""
-        return _book(flight_id, passenger)
-
-    return [search_flights, book_flight]
+    """Returns the LangChain tools defined at module level. Kept as a
+    function for symmetry with the rest of the demo (callers expect a
+    ``list[BaseTool]``)."""
+    return list(_TOOLS)
 
 
 def run_real_agent(
@@ -190,11 +296,18 @@ def run_real_agent(
     user_replies: Iterable[str],
     *,
     max_turns: int = 8,
+    model: str = "claude-haiku-4-5-20251001",
+    out_path: Path | None = None,
+    quiet: bool = False,
+    task_id: str = "",
+    trial: int = 0,
 ) -> str:
     """Drive a LangChain ChatAnthropic agent through the booking protocol.
 
     Returns one of: "ok" (terminal state reached), "violated", "unrecognized",
-    "incomplete" (ran out of turns).
+    "incomplete" (ran out of turns). When ``out_path`` is set, every
+    structured event (user message, agent text, tool call, tool result,
+    monitor verdict, outcome) is appended as JSON.
     """
     from langchain_anthropic import ChatAnthropic
     from langchain_core.messages import (
@@ -204,16 +317,40 @@ def run_real_agent(
         ToolMessage,
     )
 
+    log = EventLog(out_path=out_path) if out_path else None
+    if log:
+        # Reset the file so re-runs don't accumulate.
+        if out_path.exists():
+            out_path.unlink()
+        log.emit(
+            type="meta",
+            task_id=task_id,
+            trial=trial,
+            model=model,
+            system_prompt=system_prompt,
+            user_request=user_request,
+            user_replies=list(user_replies),
+            protocol=PROTOCOL,
+        )
+
+    user_replies = list(user_replies)
+
     tools = _build_lc_tools()
     tools_by_name = {t.name: t for t in tools}
-    llm = ChatAnthropic(model="claude-haiku-4-5-20251001", max_tokens=512).bind_tools(
-        tools
-    )
+    llm = ChatAnthropic(model=model, max_tokens=512).bind_tools(tools)
 
     monitor = Monitor(PROTOCOL)
     messages: list = [SystemMessage(content=system_prompt), HumanMessage(content=user_request)]
-    print(f"[user]  {user_request}")
+    if not quiet:
+        print(f"[user]  {user_request}")
+    if log:
+        log.emit(type="user", content=user_request)
     user_iter: Iterator[str] = iter(user_replies)
+
+    def finish(outcome: str) -> str:
+        if log:
+            log.emit(type="outcome", outcome=outcome)
+        return outcome
 
     for turn in range(max_turns):
         response: AIMessage = llm.invoke(messages)
@@ -225,13 +362,19 @@ def run_real_agent(
                 send_label, recv_label = TOOL_LABELS.get(
                     tc["name"], (tc["name"], f"{tc['name']}Result")
                 )
-                print(f"[agent] tool: {tc['name']}({tc['args']})")
-                if not _step(monitor, "send", send_label):
-                    return "violated"
+                if not quiet:
+                    print(f"[agent] tool: {tc['name']}({tc['args']})")
+                if log:
+                    log.emit(type="agent_tool_call", name=tc["name"], args=tc["args"])
+                if not _step(monitor, "send", send_label, log=log, quiet=quiet):
+                    return finish("violated")
                 output = tools_by_name[tc["name"]].invoke(tc["args"])
-                print(f"[tool]  {output}")
-                if not _step(monitor, "receive", recv_label):
-                    return "violated"
+                if not quiet:
+                    print(f"[tool]  {output}")
+                if log:
+                    log.emit(type="tool_result", name=tc["name"], content=str(output))
+                if not _step(monitor, "receive", recv_label, log=log, quiet=quiet):
+                    return finish("violated")
                 messages.append(
                     ToolMessage(content=str(output), tool_call_id=tc["id"])
                 )
@@ -240,35 +383,38 @@ def run_real_agent(
         # Text-only response → the agent presented options to the user.
         text = (response.content or "").strip() if isinstance(response.content, str) else ""
         if not text:
-            # Some models emit empty text + no tool calls. Treat as end.
             break
-        print(f"[agent] {text}")
+        if not quiet:
+            print(f"[agent] {text}")
+        if log:
+            log.emit(type="agent_text", content=text)
 
         if monitor.is_terminal:
-            # Final wrap-up message after BookingConfirmation.
-            return "ok"
+            return finish("ok")
 
-        if not _step(monitor, "send", "PresentOptions"):
-            return "violated"
+        if not _step(monitor, "send", "PresentOptions", log=log, quiet=quiet):
+            return finish("violated")
 
         try:
             user_msg = next(user_iter)
         except StopIteration:
-            print("[demo]  no more user replies; ending")
+            if not quiet:
+                print("[demo]  no more user replies; ending")
             break
-        print(f"[user]  {user_msg}")
+        if not quiet:
+            print(f"[user]  {user_msg}")
+        if log:
+            log.emit(type="user", content=user_msg)
         messages.append(HumanMessage(content=user_msg))
 
         label = project_user_message(user_msg)
-        # `?UserApproval` advances state; UNRECOGNIZED preserves it and
-        # signals "ask for clarification".
         if label == UNRECOGNIZED:
-            _step(monitor, "receive", UNRECOGNIZED)
-            return "unrecognized"
-        if not _step(monitor, "receive", label):
-            return "violated"
+            _step(monitor, "receive", UNRECOGNIZED, log=log, quiet=quiet)
+            return finish("unrecognized")
+        if not _step(monitor, "receive", label, log=log, quiet=quiet):
+            return finish("violated")
 
-    return "incomplete"
+    return finish("incomplete")
 
 
 # ── Synthetic agent for the deterministic skip demo ──────────
