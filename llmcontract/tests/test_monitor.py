@@ -114,6 +114,35 @@ class TestRecursion:
         assert isinstance(m.receive("SessionEnd"), Ok)
         assert m.is_terminal
 
+    def test_recursive_choice_preserves_all_branches_after_loop(self):
+        """Regression: `rec X.!{a.X, b.X, c.X}` previously locked the loop to
+        whichever branch was taken first, because RecVar copied a snapshot of
+        the target's transitions before later choice branches were compiled.
+        """
+        m = Monitor("rec X.!{A.X, B.X, C.X}")
+        for label in ["A", "B", "C", "A", "B", "C"]:
+            assert isinstance(m.send(label), Ok), f"{label!r} rejected after loop"
+
+    def test_recursive_choice_violation_still_fires(self):
+        m = Monitor("rec X.!{A.X, B.X}")
+        assert isinstance(m.send("A"), Ok)
+        result = m.send("C")
+        assert not isinstance(result, Ok)
+        assert hasattr(result, "expected")
+        assert set(result.expected) == {"!A", "!B"}
+
+    def test_nested_recursive_choices(self):
+        """Two nested `rec` scopes, each with multi-branch choices that loop."""
+        protocol = (
+            "rec Outer.!{"
+            "Enter.rec Inner.!{Step.Inner, Done.Outer}, "
+            "Skip.Outer"
+            "}"
+        )
+        m = Monitor(protocol)
+        for label in ["Skip", "Enter", "Step", "Step", "Done", "Skip", "Enter"]:
+            assert isinstance(m.send(label), Ok), f"{label!r} rejected"
+
 
 class TestSimpleProtocol:
     """Test with minimal protocols."""

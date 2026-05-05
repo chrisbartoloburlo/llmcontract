@@ -22,6 +22,11 @@ class Automaton:
     terminal_states: set[int] = field(default_factory=set)
     initial_state: int = 0
     _next_id: int = field(default=0, repr=False)
+    # State aliases produced by recursion back-edges. `aliases[child] = target`
+    # means the child state behaves identically to target. Resolved after
+    # compilation finishes so back-edges see the *final* set of target
+    # transitions, not just the ones that existed when the back-edge was hit.
+    _aliases: dict[int, int] = field(default_factory=dict, repr=False)
 
     def _new_state(self) -> int:
         sid = self._next_id
@@ -41,7 +46,45 @@ def compile_ast(node: ProtocolNode) -> Automaton:
     aut.initial_state = start
     rec_env: dict[str, int] = {}
     _compile(node, start, aut, rec_env)
+    _resolve_aliases(aut)
     return aut
+
+
+def _resolve_aliases(aut: Automaton) -> None:
+    """Collapse alias states by redirecting every reference to its canonical id.
+
+    A state X marked as an alias of T behaves like T for all observers. We
+    redirect every outgoing transition that points at X to point at T instead
+    (chasing alias chains), then drop X from the state set entirely. This must
+    happen after `_compile` finishes so the snapshot of T's transitions is
+    final — fixing the bug where a recursion back-edge inside a choice only
+    saw the branches that were compiled before it.
+    """
+
+    def canonical(state: int) -> int:
+        seen: set[int] = set()
+        cur = state
+        while cur in aut._aliases and cur not in seen:
+            seen.add(cur)
+            cur = aut._aliases[cur]
+        return cur
+
+    aliased = set(aut._aliases.keys())
+    if not aliased:
+        return
+
+    for src in list(aut.transitions.keys()):
+        if src in aliased:
+            continue
+        for key, dest in list(aut.transitions[src].items()):
+            aut.transitions[src][key] = canonical(dest)
+
+    for s in aliased:
+        aut.transitions.pop(s, None)
+        aut.terminal_states.discard(s)
+
+    if aut.initial_state in aliased:
+        aut.initial_state = canonical(aut.initial_state)
 
 
 def _compile(
@@ -96,12 +139,12 @@ def _compile(
         _compile(node.body, current, aut, rec_env_copy)
 
     elif isinstance(node, RecVar):
-        # Back-edge: wire current state to the recursion point.
-        # We mark current as an epsilon-transition target by copying transitions.
+        # Back-edge: alias current to the recursion target. We can't copy the
+        # target's transitions now because more branches of the surrounding
+        # choice may still be compiled; resolution happens once compilation
+        # finishes (see `_resolve_aliases`).
         target = rec_env[node.var]
-        # Copy all transitions from the target to current state
-        for key, dest in aut.transitions.get(target, {}).items():
-            aut.transitions[current][key] = dest
+        aut._aliases[current] = target
 
     else:
         raise TypeError(f"Unknown AST node: {type(node)}")
