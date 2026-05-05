@@ -222,6 +222,10 @@ A Claude Code plugin ships with this repo: **protocol-builder** walks you throug
 
 The skill validates each draft DSL against `llmcontract`'s parser, so anything it produces is guaranteed to load with `Monitor(...)`. Source lives under `skills/protocol-builder/`.
 
+## Case Studies
+
+- **[`llmcontract-tau2`](https://github.com/chrisbartoloburlo/llmcontract-tau2)** — Standalone replay of [tau2-bench](https://github.com/sierra-research/tau2-bench)'s shipped trajectories through `Monitor`. Headline: 11/1755 (0.6%) of trajectories that tau2 scored as passing violate the documented "obtain user confirmation before mutating the database" policy. Discussion upstream: [tau2-bench#298](https://github.com/sierra-research/tau2-bench/issues/298).
+
 ## Research
 
 This work is based on the theory developed in:
