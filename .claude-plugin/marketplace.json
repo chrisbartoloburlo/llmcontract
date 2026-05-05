@@ -1,0 +1,20 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "llmcontract",
+  "owner": { "name": "Chris Bartolo Burlo" },
+  "metadata": {
+    "description": "Runtime monitoring for LLM agent interaction protocols (session types)"
+  },
+  "plugins": [
+    {
+      "name": "protocol-builder",
+      "source": "./",
+      "description": "Conversationally design a session-type protocol for an LLM agent's MCP interactions, validate it, and emit a Python integration snippet for the llmsessioncontract runtime monitor.",
+      "version": "0.1.0",
+      "author": { "name": "Chris Bartolo Burlo" },
+      "license": "MIT",
+      "homepage": "https://llmcontract.dev",
+      "keywords": ["llm", "agents", "session-types", "mcp", "runtime-monitoring", "protocol"]
+    }
+  ]
+}

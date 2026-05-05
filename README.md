@@ -207,6 +207,21 @@ Each step appears as a guardrail observation in your Langfuse trace with:
 - **Output**: `passed: true/false`, violation details if applicable
 - **Score**: `protocol_compliance` (boolean) for filtering and analytics
 
+## Claude Code Plugin
+
+A Claude Code plugin ships with this repo: **protocol-builder** walks you through designing a session-type protocol conversationally, validates it as you go, and emits a ready-to-paste Python integration snippet.
+
+```bash
+# Install in Claude Code
+/plugin marketplace add chrisbartoloburlo/llmcontract
+/plugin install protocol-builder@llmcontract
+
+# Then in any conversation
+/protocol-builder
+```
+
+The skill validates each draft DSL against `llmcontract`'s parser, so anything it produces is guaranteed to load with `Monitor(...)`. Source lives under `skills/protocol-builder/`.
+
 ## Research
 
 This work is based on the theory developed in:

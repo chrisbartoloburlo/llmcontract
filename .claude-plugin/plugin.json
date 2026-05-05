@@ -1,0 +1,8 @@
+{
+  "name": "protocol-builder",
+  "description": "Design session-type protocols for LLM agents and emit a runtime-checkable DSL plus Python integration snippet for the llmsessioncontract monitor.",
+  "version": "0.1.0",
+  "author": { "name": "Chris Bartolo Burlo" },
+  "homepage": "https://llmcontract.dev",
+  "license": "MIT"
+}
