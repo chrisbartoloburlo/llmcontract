@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.2.2 — 2026-05-05
+
+### Added
+
+- **`Unrecognized` MonitorResult** for projection-induced uncertainty.
+  When the projection layer (typically over natural-language user input)
+  can't decide which label to emit, it can pass the `UNRECOGNIZED`
+  sentinel to `Monitor.send` / `Monitor.receive`. The monitor returns an
+  `Unrecognized(expected, direction)` result *without* halting and
+  *without* advancing state — distinct from `Violation` (agent broke the
+  rules) so outer-loop code can react by driving a clarification turn
+  rather than treating the trajectory as failed.
+
+  Protocols may also include `Unrecognized` as an explicit choice branch
+  (`?{Yes.end, No.end, Unrecognized.Loop}`); in that case the monitor
+  follows the transition normally and returns `Ok`. Both modes — soft
+  fall-through and explicit branch — are useful in different settings.
+
+  Motivation: any projection from natural language to a finite alphabet
+  is necessarily lossy. Conflating "the projection couldn't classify"
+  with "the agent violated the protocol" loses important information at
+  the system boundary; this change makes the distinction first-class.
+
+  New exports: `Unrecognized`, `UNRECOGNIZED` from `llmcontract`.
+
 ## 0.2.1 — 2026-05-05
 
 ### Fixed

@@ -30,7 +30,36 @@ class Blocked:
     reason: str
 
 
-MonitorResult = Union[Ok, Violation, Blocked]
+@dataclass(frozen=True)
+class Unrecognized:
+    """The projection couldn't classify the event into a known label.
+
+    Distinct from `Violation`: a violation means the agent did the wrong
+    thing, an `Unrecognized` means the projection layer (typically over
+    natural language) couldn't decide which label to emit. Outer-loop code
+    is expected to react by asking the underlying agent to clarify with the
+    user — not by halting as if the protocol had been broken.
+
+    The monitor's state is NOT advanced when it returns `Unrecognized` and
+    the monitor is NOT halted, so a follow-up event after clarification
+    can be fed normally.
+
+    A protocol can opt out of this behavior by including a literal
+    `Unrecognized` transition at any state — in that case the monitor
+    follows the transition and returns `Ok`, treating clarification as a
+    first-class branch of the protocol.
+    """
+    expected: list[str]
+    direction: str
+
+
+MonitorResult = Union[Ok, Violation, Blocked, Unrecognized]
+
+
+# Sentinel label that triggers Unrecognized handling. Use this constant
+# rather than a bare string so callers don't typo their way around the
+# special case.
+UNRECOGNIZED = "Unrecognized"
 
 
 # ── Monitor ──────────────────────────────────────────────────
@@ -75,8 +104,16 @@ class Monitor:
             self._current_state = transitions[key]
             return Ok()
 
-        # Build a useful violation message
         expected = [f"{'!' if d == 'send' else '?'}{l}" for d, l in transitions]
+
+        # Soft fail-open path for projection-induced uncertainty: if the
+        # event's label is the UNRECOGNIZED sentinel and the protocol does
+        # not declare a transition for it at this state, return Unrecognized
+        # without halting and without advancing state — the outer loop is
+        # expected to drive a clarification turn and re-feed the result.
+        if label == UNRECOGNIZED:
+            return Unrecognized(expected=expected, direction=direction)
+
         got = f"{'!' if direction == 'send' else '?'}{label}"
         self._halted = True
         return Violation(expected=expected, got=got)

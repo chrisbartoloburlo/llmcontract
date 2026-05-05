@@ -1,4 +1,6 @@
-from llmcontract.monitor.monitor import Monitor, MonitorResult, Ok, Violation, Blocked
+from llmcontract.monitor.monitor import (
+    Monitor, MonitorResult, Ok, Violation, Blocked, Unrecognized, UNRECOGNIZED,
+)
 from llmcontract.integration import (
     MonitoredClient, ToolMiddleware, ToolResult,
     LLMResponse, ToolCall, ProtocolViolationError,
@@ -6,6 +8,7 @@ from llmcontract.integration import (
 
 __all__ = [
     "Monitor", "MonitorResult", "Ok", "Violation", "Blocked",
+    "Unrecognized", "UNRECOGNIZED",
     "MonitoredClient", "ToolMiddleware", "ToolResult",
     "LLMResponse", "ToolCall", "ProtocolViolationError",
 ]

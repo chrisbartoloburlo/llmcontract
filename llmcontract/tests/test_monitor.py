@@ -2,7 +2,9 @@
 
 import pytest
 
-from llmcontract.monitor.monitor import Blocked, Monitor, Ok, Violation
+from llmcontract.monitor.monitor import (
+    Blocked, Monitor, Ok, UNRECOGNIZED, Unrecognized, Violation,
+)
 
 
 FLIGHT_PROTOCOL = (
@@ -156,3 +158,58 @@ class TestSimpleProtocol:
         assert not m.is_terminal
         assert isinstance(m.send("Ping"), Ok)
         assert m.is_terminal
+
+
+class TestUnrecognized:
+    """Soft fail-open path for projection layers that can't classify input.
+
+    Distinct from `Violation`: signals that the projection (typically over
+    natural language) couldn't decide which label to emit, so the outer loop
+    should drive a clarification turn rather than treat the agent as having
+    broken the protocol.
+    """
+
+    def test_unrecognized_does_not_advance_state_or_halt(self):
+        m = Monitor("?{Yes.end, No.end}")
+        result = m.receive(UNRECOGNIZED)
+        assert isinstance(result, Unrecognized)
+        assert result.direction == "receive"
+        assert set(result.expected) == {"?Yes", "?No"}
+        # State preserved → a real classification can still fire
+        assert isinstance(m.receive("Yes"), Ok)
+        assert m.is_terminal
+
+    def test_repeated_unrecognized_keeps_monitor_live(self):
+        m = Monitor("?{Yes.end, No.end}")
+        for _ in range(5):
+            assert isinstance(m.receive(UNRECOGNIZED), Unrecognized)
+        # After many unrecognized events the monitor is still live
+        assert not m.is_halted
+        assert isinstance(m.receive("No"), Ok)
+
+    def test_protocol_can_handle_unrecognized_explicitly(self):
+        """If the protocol declares an `Unrecognized` branch, the monitor
+        treats it as a regular transition and returns Ok."""
+        m = Monitor(
+            "rec Loop."
+            "!Ask.?{Yes.end, No.end, Unrecognized.Loop}"
+        )
+        assert isinstance(m.send("Ask"), Ok)
+        # First time the user is unclear → protocol routes us back to Loop
+        assert isinstance(m.receive(UNRECOGNIZED), Ok)
+        assert isinstance(m.send("Ask"), Ok)
+        assert isinstance(m.receive("Yes"), Ok)
+        assert m.is_terminal
+
+    def test_unrecognized_works_for_send_direction_too(self):
+        m = Monitor("!{A.end, B.end}")
+        result = m.send(UNRECOGNIZED)
+        assert isinstance(result, Unrecognized)
+        assert result.direction == "send"
+        assert set(result.expected) == {"!A", "!B"}
+
+    def test_unrecognized_after_a_real_violation_returns_blocked(self):
+        m = Monitor("?Yes.end")
+        assert isinstance(m.receive("No"), Violation)
+        # Once halted, even Unrecognized is rejected as Blocked
+        assert isinstance(m.receive(UNRECOGNIZED), Blocked)

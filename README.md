@@ -82,6 +82,33 @@ for _ in range(100):
     m.receive("Pong")  # Ok()
 ```
 
+### Handling natural-language input: `Unrecognized`
+
+When the projection layer (typically over user chat) can't classify an event into a known label, it can emit the sentinel `UNRECOGNIZED` instead. The monitor treats this as a soft signal — distinct from `Violation` — without halting or advancing state, so the outer loop can drive a clarification turn:
+
+```python
+from llmcontract import Monitor, Ok, Unrecognized, UNRECOGNIZED
+
+m = Monitor("?{Yes.end, No.end}")
+result = m.receive(UNRECOGNIZED)         # projection couldn't decide
+assert isinstance(result, Unrecognized)  # not a Violation
+# state preserved; ask the agent to ask the user to clarify, then:
+m.receive("Yes")                         # Ok()
+```
+
+A protocol can also handle `Unrecognized` *explicitly* as a first-class branch — useful for "ask again" loops:
+
+```python
+protocol = "rec Loop.!Ask.?{Yes.end, No.end, Unrecognized.Loop}"
+m = Monitor(protocol)
+m.send("Ask")
+m.receive(UNRECOGNIZED)  # Ok — protocol routes back to Loop
+m.send("Ask")
+m.receive("Yes")         # Ok — terminal
+```
+
+The distinction matters at the system boundary: `Violation` means the agent broke the rules; `Unrecognized` means we don't have enough information to decide yet. Different responses (halt vs. clarify) come naturally from the typed result.
+
 ## Integration Layer
 
 For real agent loops, `llmcontract` provides a client wrapper and tool middleware that share a single monitor — so the full interaction is tracked automatically.
