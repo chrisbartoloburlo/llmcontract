@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "llmsessioncontract"
-version = "0.2.2"
+version = "0.3.0"
 description = "Runtime monitor for LLM agent interaction protocols based on session type theory"
 requires-python = ">=3.10"
 license = "MIT"
@@ -33,7 +33,8 @@ Issues = "https://github.com/chrisbartoloburlo/llmcontract/issues"
 
 [project.optional-dependencies]
 langfuse = ["langfuse>=3.0.0"]
-dev = ["pytest"]
+langchain = ["langchain>=1.0.0", "langchain-core>=0.3.0"]
+dev = ["pytest", "pytest-asyncio"]
 
 [tool.setuptools.packages.find]
 include = ["llmcontract*"]

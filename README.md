@@ -201,6 +201,80 @@ while True:
         messages.append(tool_result_msg(tc.id, result))
 ```
 
+## LangChain Integration (`llmcontract.langchain`, 0.3.0+)
+
+A focused FSM-as-data API for users who want to wire protocol monitoring
+into LangChain agents without touching the DSL parser. Tool references
+are real Python callables, transitions are explicit objects with
+optional guards and actions, and violation handling is fully
+user-controlled.
+
+```bash
+pip install llmsessioncontract[langchain]
+```
+
+```python
+from langchain_core.tools import tool
+from langchain.agents import create_agent
+from llmcontract.langchain import (
+    ProtocolFSM, Transition, ProtocolMonitor,
+    ProtocolEnforcerMiddleware, ViolationEvent,
+    ProtocolViolationError, ref,
+)
+
+@tool
+def search(query: str) -> str:
+    """Search for available flights."""
+    return f"Results for: {query}"
+
+@tool
+def book(result: str) -> str:
+    """Book a selected flight."""
+    return f"Booked: {result}"
+
+search_ref = ref(search)
+book_ref = ref(book)
+
+fsm = (
+    ProtocolFSM(initial="idle")
+    .add_transition(Transition(source="idle", tool=search_ref, phase="send", target="searching"))
+    .add_transition(Transition(source="searching", tool=search_ref, phase="recv", target="results"))
+    .add_transition(Transition(source="results", tool=book_ref, phase="send", target="booking",
+                               guard=lambda ctx: bool(ctx.metadata.get("args", {}))))
+    .add_transition(Transition(source="booking", tool=book_ref, phase="recv", target="done"))
+    .mark_terminal("done")
+)
+
+def on_violation(v: ViolationEvent) -> None:
+    raise ProtocolViolationError(f"Illegal {v.phase}:{v.tool_ref.label} from {v.current_state!r}", violation=v)
+
+monitor = ProtocolMonitor(fsm=fsm, on_violation=on_violation)
+middleware = ProtocolEnforcerMiddleware(monitor=monitor, tool_refs=[search_ref, book_ref]).middleware
+
+agent = create_agent(model=..., tools=[search, book], middleware=[middleware])
+agent.invoke({"messages": [("user", "Book me a flight to Rome.")]})
+
+print(monitor.state)        # → "done"
+print(monitor.is_complete()) # → True
+print(monitor.trace)        # → ["send:search", "recv:search", "send:book", "recv:book"]
+```
+
+When to pick this over the DSL `Monitor`:
+
+- You're already in a LangChain stack and want a drop-in `AgentMiddleware`
+- You need per-transition guards and actions (e.g., audit logs, business rules)
+- You want enforcement (block tool calls), not just observation
+- You don't need recursion / choice / `Unrecognized` from the DSL
+
+When to stick with the DSL `Monitor`:
+
+- You want to write protocols as concise strings (`!Search.?Result.end`)
+- You need recursion or compositional choice
+- You're outside LangChain (Anthropic SDK, OpenAI SDK, custom loop)
+- You want first-class natural-language ambiguity via `Unrecognized`
+
+Worked example: [`examples/langchain_booking/booking_agent_submodule.py`](examples/langchain_booking/booking_agent_submodule.py).
+
 ## Langfuse Integration
 
 Track protocol compliance in [Langfuse](https://langfuse.com) — every send/receive is recorded as a guardrail observation with a pass/fail score.

@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.3.0 — 2026-05-06
+
+### Added
+
+- **`llmcontract.langchain` submodule** — a focused, FSM-as-data API for
+  users who want to wire protocol monitoring into LangChain agents
+  without writing or parsing a DSL string. Tool references are real
+  Python callables (`ref(search)`, never `"search"`); transitions are
+  explicit `Transition` objects with optional `guard` and `action`
+  callbacks; violation handling is fully user-controlled via an
+  `on_violation: Callable[[ViolationEvent], None]` hook.
+
+  Public API:
+
+  - `ToolRef` / `ref()` — stable, hashable references derived from
+    `tool.name` (or `__name__` for plain callables), no magic strings
+  - `ProtocolFSM` — pure FSM definition built fluently via
+    `add_transition(...)` / `mark_terminal(...)`, no LangChain imports
+  - `Transition`, `MonitorContext`, `ViolationEvent` — dataclasses for
+    the FSM data model
+  - `ProtocolMonitor` — stateful runner that wraps an FSM, calls the
+    user's `on_violation` handler when transitions are rejected
+  - `ProtocolEnforcerMiddleware` — `AgentMiddleware` subclass exposing
+    `wrap_tool_call` / `awrap_tool_call`, drops in via
+    `create_agent(middleware=[...])`
+  - `ProtocolViolationError` — convenience exception for handlers that
+    want to raise
+
+  Optional dependency: install with `pip install
+  llmsessioncontract[langchain]`. The FSM and monitor modules
+  themselves have zero LangChain imports, so they're testable in
+  isolation.
+
+  Validated against the canonical booking example from the technical
+  spec — six-state FSM with guard + action, real `ChatAnthropic` agent
+  via `create_agent`. Reaches the `done` terminal state with a clean
+  four-event trace (`send:search`, `recv:search`, `send:book`,
+  `recv:book`).
+
+  Adds 79 tests across `test_langchain_tool_ref.py`,
+  `test_langchain_fsm.py`, `test_langchain_monitor.py`, and
+  `test_langchain_middleware.py`. Middleware tests skip cleanly if
+  LangChain isn't installed.
+
+  This is a **second API alongside the existing DSL-based `Monitor`**,
+  not a replacement — the two coexist and target different audiences.
+  See the README for guidance on which to pick.
+
 ## 0.2.2 — 2026-05-05
 
 ### Added
