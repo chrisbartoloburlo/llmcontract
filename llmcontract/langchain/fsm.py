@@ -31,10 +31,11 @@ class MonitorContext:
     """FSM state *before* the transition attempt."""
 
     event: str
-    """Full event string, e.g. ``"send:search"``."""
+    """Full event string, e.g. ``"send:search"`` or ``"send:PresentOptions"``."""
 
-    tool_ref: ToolRef
-    """The ``ToolRef`` whose call triggered this event."""
+    tool_ref: ToolRef | None
+    """The ``ToolRef`` whose call triggered this event, or ``None`` for
+    non-tool events fired via ``ProtocolMonitor.transition_event``."""
 
     phase: str
     """Either ``"send"`` (tool call about to run) or ``"recv"`` (result returned)."""
@@ -42,6 +43,10 @@ class MonitorContext:
     trace: list[str]
     """Snapshot copy of all events fired so far. Mutating this list does
     not affect the monitor's internal trace."""
+
+    event_label: str | None = None
+    """The free-form label for non-tool events. Mutually exclusive with
+    ``tool_ref`` — exactly one is non-``None`` per context."""
 
     metadata: dict[str, Any] = field(default_factory=dict)
     """Per-phase context — tool ``args`` on ``send`` events, tool
@@ -62,8 +67,13 @@ class ViolationEvent:
     May be empty if no transitions are defined from this state."""
     trace: list[str]
     """All events fired so far, *including* the violating one."""
-    tool_ref: ToolRef
+    tool_ref: ToolRef | None
+    """The ``ToolRef`` for tool-call violations, or ``None`` for
+    violations on non-tool (``event_label``-keyed) edges."""
     phase: str
+    event_label: str | None = None
+    """Free-form label for non-tool event violations. Mutually exclusive
+    with ``tool_ref``."""
 
 
 ViolationHandler = Callable[[ViolationEvent], None]
@@ -79,16 +89,23 @@ _VALID_PHASES = ("send", "recv")
 class Transition:
     """One edge in the FSM graph.
 
-    ``event`` is computed from ``phase`` and ``tool.label``; it must not
-    be assigned by the developer. ``guard`` (if set) decides whether the
-    edge fires; ``action`` (if set) runs as a side effect when the edge
-    commits.
+    Provide exactly one of ``tool`` (for tool-call edges, label derived
+    from ``ToolRef.label``) or ``event_label`` (for free-form events
+    fired via ``ProtocolMonitor.transition_event`` — agent text replies,
+    user replies, and any other non-tool signal the orchestrator
+    projects into the protocol).
+
+    ``event`` is computed from ``phase`` and the chosen label; it must
+    not be assigned by the developer. ``guard`` (if set) decides whether
+    the edge fires; ``action`` (if set) runs as a side effect when the
+    edge commits.
     """
 
     source: str
-    tool: ToolRef
     phase: str
     target: str
+    tool: ToolRef | None = None
+    event_label: str | None = None
     guard: Callable[[MonitorContext], bool] | None = None
     action: Callable[[MonitorContext], None] | None = None
 
@@ -98,14 +115,20 @@ class Transition:
                 f"Transition.phase must be one of {_VALID_PHASES!r}; "
                 f"got {self.phase!r}"
             )
+        if (self.tool is None) == (self.event_label is None):
+            raise ValueError(
+                "Transition requires exactly one of `tool` or `event_label`"
+            )
 
     @property
     def event(self) -> str:
-        """The lookup key for this transition: ``"<phase>:<tool.label>"``.
-        Always recomputed; never stored — keeps correctness if internals
-        of ``ToolRef`` ever shift.
+        """The lookup key for this transition: ``"<phase>:<label>"``,
+        where ``<label>`` comes from ``tool.label`` or ``event_label``
+        depending on which was supplied. Always recomputed; never
+        stored — keeps correctness if ``ToolRef`` internals ever shift.
         """
-        return f"{self.phase}:{self.tool.label}"
+        label = self.tool.label if self.tool is not None else self.event_label
+        return f"{self.phase}:{label}"
 
 
 # ── The FSM ─────────────────────────────────────────────────

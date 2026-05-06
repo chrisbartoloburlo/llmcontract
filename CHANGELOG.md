@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.3.1 — 2026-05-04
+
+### Added
+
+- **Mixed transitions in `llmcontract.langchain`** — `Transition` now
+  accepts either a `tool: ToolRef` (for tool-backed events, fired
+  through the middleware) **or** an `event_label: str` (for free-form
+  events, fired explicitly by the orchestrator via the new
+  `ProtocolMonitor.transition_event(event_label, phase, metadata)`
+  method). The two are mutually exclusive — a `Transition` constructor
+  raises `ValueError` if both or neither are supplied.
+
+  This closes the expressivity gap between the FSM-as-data API and the
+  DSL-based `Monitor`: protocols mixing tool calls with non-tool events
+  (agent text replies, projected user replies, timeouts, system
+  signals) can now be expressed entirely as a single FSM. `MonitorContext`
+  and `ViolationEvent` gain an `event_label: str | None` field so guards,
+  actions, and violation handlers can branch on which firing surface
+  triggered them.
+
+  Backwards compatible — the existing `tool=...` keyword and
+  `monitor.transition(...)` API are unchanged. Existing FSM definitions
+  keep working without modification.
+
+  The `examples/langchain_booking/booking_agent_submodule.py` example
+  is updated to model the full canonical booking protocol end-to-end:
+  `!SearchFlights`/`?FlightResults` and `!BookFlight`/`?BookingConfirmation`
+  via the middleware, `!PresentOptions` and `?UserApproval` via
+  `transition_event` from the orchestrator.
+
+  Adds 8 tests covering construction validation, the new
+  `transition_event` method, and an end-to-end mixed protocol. Total
+  test count: 120.
+
 ## 0.3.0 — 2026-05-06
 
 ### Added

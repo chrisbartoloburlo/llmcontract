@@ -62,12 +62,53 @@ class ProtocolMonitor:
         phase: str,
         metadata: dict[str, Any] | None = None,
     ) -> bool:
-        """Attempt one FSM step.
+        """Attempt one FSM step for a tool-backed event.
 
         Returns ``True`` on success (state advanced), ``False`` on
         violation (state unchanged, ``on_violation`` invoked).
         """
-        event = f"{phase}:{tool_ref.label}"
+        return self._step(
+            label=tool_ref.label,
+            phase=phase,
+            tool_ref=tool_ref,
+            event_label=None,
+            metadata=metadata,
+        )
+
+    def transition_event(
+        self,
+        event_label: str,
+        phase: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> bool:
+        """Attempt one FSM step for a free-form (non-tool) event.
+
+        Use this for transitions whose ``Transition`` was declared with
+        ``event_label=...`` instead of a ``ToolRef`` — agent text
+        replies, projected user replies, timeouts, or any other signal
+        the orchestrator chooses to feed into the protocol.
+
+        Returns ``True`` on success (state advanced), ``False`` on
+        violation (state unchanged, ``on_violation`` invoked).
+        """
+        return self._step(
+            label=event_label,
+            phase=phase,
+            tool_ref=None,
+            event_label=event_label,
+            metadata=metadata,
+        )
+
+    def _step(
+        self,
+        *,
+        label: str,
+        phase: str,
+        tool_ref: ToolRef | None,
+        event_label: str | None,
+        metadata: dict[str, Any] | None,
+    ) -> bool:
+        event = f"{phase}:{label}"
         # The trace records the *attempted* event regardless of outcome,
         # so violation handlers see the full history including the
         # violating step. ``ViolationEvent.trace`` and
@@ -81,6 +122,7 @@ class ProtocolMonitor:
             tool_ref=tool_ref,
             phase=phase,
             trace=list(self._trace),
+            event_label=event_label,
             metadata=dict(metadata) if metadata else {},
         )
 
@@ -97,6 +139,7 @@ class ProtocolMonitor:
                 trace=list(self._trace),
                 tool_ref=tool_ref,
                 phase=phase,
+                event_label=event_label,
             )
         )
         return False

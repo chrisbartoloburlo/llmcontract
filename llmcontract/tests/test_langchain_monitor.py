@@ -226,3 +226,97 @@ class TestActionOnlyOnSuccess:
         m = ProtocolMonitor(fsm=fsm, on_violation=lambda v: None)
         m.transition(search, "send")
         assert called == []
+
+
+# ── transition_event (free-form, non-tool events) ──────────
+
+
+class TestTransitionEvent:
+    def test_event_label_transition_advances_state(self) -> None:
+        fsm = (
+            ProtocolFSM(initial="a")
+            .add_transition(
+                Transition(
+                    source="a",
+                    phase="send",
+                    target="b",
+                    event_label="PresentOptions",
+                )
+            )
+        )
+        m = ProtocolMonitor(fsm=fsm, on_violation=lambda v: None)
+        assert m.transition_event("PresentOptions", "send") is True
+        assert m.state == "b"
+        assert m.trace == ["send:PresentOptions"]
+
+    def test_event_label_violation_invokes_handler(self) -> None:
+        fsm = ProtocolFSM(initial="a").add_transition(
+            Transition(source="a", phase="send", target="b", event_label="X")
+        )
+        captured: list[ViolationEvent] = []
+        m = ProtocolMonitor(fsm=fsm, on_violation=captured.append)
+
+        m.transition_event("Y", "send")  # not registered
+
+        assert m.state == "a"
+        assert len(captured) == 1
+        v = captured[0]
+        assert v.event == "send:Y"
+        assert v.event_label == "Y"
+        assert v.tool_ref is None
+        assert v.expected == ["send:X"]
+
+    def test_mixed_tool_and_event_label_protocol(self) -> None:
+        """The end-to-end value: a protocol mixing tool calls with
+        agent-text/user-reply events fires from the same monitor."""
+        search = _ref("search")
+        book = _ref("book")
+        fsm = (
+            ProtocolFSM(initial="idle")
+            .add_transition(Transition(source="idle", tool=search, phase="send", target="searching"))
+            .add_transition(Transition(source="searching", tool=search, phase="recv", target="results"))
+            .add_transition(Transition(
+                source="results", phase="send", target="presented",
+                event_label="PresentOptions",
+            ))
+            .add_transition(Transition(
+                source="presented", phase="recv", target="approved",
+                event_label="UserApproval",
+            ))
+            .add_transition(Transition(source="approved", tool=book, phase="send", target="booking"))
+            .add_transition(Transition(source="booking", tool=book, phase="recv", target="done"))
+            .mark_terminal("done")
+        )
+        m = ProtocolMonitor(fsm=fsm, on_violation=lambda v: None)
+
+        assert m.transition(search, "send") is True
+        assert m.transition(search, "recv") is True
+        assert m.transition_event("PresentOptions", "send") is True
+        assert m.transition_event("UserApproval", "recv") is True
+        assert m.transition(book, "send") is True
+        assert m.transition(book, "recv") is True
+
+        assert m.is_complete()
+        assert m.trace == [
+            "send:search",
+            "recv:search",
+            "send:PresentOptions",
+            "recv:UserApproval",
+            "send:book",
+            "recv:book",
+        ]
+
+    def test_event_label_metadata_threaded_to_action(self) -> None:
+        seen: list[dict] = []
+        fsm = ProtocolFSM(initial="a").add_transition(
+            Transition(
+                source="a",
+                phase="recv",
+                target="b",
+                event_label="UserReply",
+                action=lambda ctx: seen.append(dict(ctx.metadata)),
+            )
+        )
+        m = ProtocolMonitor(fsm=fsm, on_violation=lambda v: None)
+        m.transition_event("UserReply", "recv", metadata={"text": "yes please"})
+        assert seen == [{"text": "yes please"}]

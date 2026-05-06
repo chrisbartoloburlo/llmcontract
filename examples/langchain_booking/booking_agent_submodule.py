@@ -1,5 +1,5 @@
 """Booking agent wired up via the canonical ``llmcontract.langchain``
-submodule (shipped in 0.3.0).
+submodule (shipped in 0.3.0; mixed transitions added in 0.3.1).
 
 This is the production-shape integration. Compare with:
 
@@ -12,10 +12,14 @@ This is the production-shape integration. Compare with:
     ``llmcontract.langchain``. ~40 lines of FSM definition and the rest
     is standard ``create_agent`` boilerplate.
 
-The FSM here is the tool-call subset of the canonical booking protocol —
-``!PresentOptions`` and ``?UserApproval`` aren't tool-backed events, so
-they're handled at the orchestrator boundary between agent invocations.
-This split (middleware for tool events, orchestrator for user events)
+The FSM models the *full* canonical booking protocol — both the
+tool-call edges (``!SearchFlights`` / ``?FlightResults`` /
+``!BookFlight`` / ``?BookingConfirmation``) and the non-tool edges
+(``!PresentOptions``, ``?UserApproval``). Tool-backed transitions use
+``tool=`` and fire automatically through the middleware; non-tool
+transitions use ``event_label=`` and are fired explicitly by the
+orchestrator via ``monitor.transition_event(...)``. This split
+(middleware for tool events, orchestrator for user/agent-text events)
 is the right factoring for any agent monitored against a session-type
 contract.
 """
@@ -59,9 +63,11 @@ book_ref = ref(book_flight)
 
 
 def _build_fsm() -> ProtocolFSM:
-    """The canonical booking protocol's tool-call subset, as an explicit
-    FSM table. The non-tool events ``!PresentOptions`` and
-    ``?UserApproval`` are handled by the orchestrator, not the FSM.
+    """The full canonical booking protocol as an explicit FSM table.
+
+    Tool edges (``tool=...``) fire from the middleware. Non-tool edges
+    (``event_label=...``) fire from the orchestrator via
+    ``monitor.transition_event(...)``. Same FSM, two firing surfaces.
 
     The FSM is rebuilt per session because ``ProtocolFSM`` itself is
     immutable but ``ProtocolMonitor`` (which holds runtime state)
@@ -74,7 +80,15 @@ def _build_fsm() -> ProtocolFSM:
         ProtocolFSM(initial="idle")
         .add_transition(Transition(source="idle", tool=search_ref, phase="send", target="searching"))
         .add_transition(Transition(source="searching", tool=search_ref, phase="recv", target="search_done"))
-        .add_transition(Transition(source="search_done", tool=book_ref, phase="send", target="booking"))
+        .add_transition(Transition(
+            source="search_done", phase="send", target="presented",
+            event_label="PresentOptions",
+        ))
+        .add_transition(Transition(
+            source="presented", phase="recv", target="approved",
+            event_label="UserApproval",
+        ))
+        .add_transition(Transition(source="approved", tool=book_ref, phase="send", target="booking"))
         .add_transition(Transition(source="booking", tool=book_ref, phase="recv", target="done"))
         .mark_terminal("done")
     )
@@ -83,7 +97,7 @@ def _build_fsm() -> ProtocolFSM:
 def _raise_on_violation(v: ViolationEvent) -> None:
     """Strict enforcement — surface as an exception. The library never
     raises itself; we choose to here because the booking flow has no
-    way to recover from an out-of-order tool call mid-session.
+    way to recover from an out-of-order event mid-session.
 
     A self-correcting alternative is to return normally from this
     handler and have ``wrap_tool_call`` surface a ``ToolMessage`` with
@@ -91,8 +105,9 @@ def _raise_on_violation(v: ViolationEvent) -> None:
     that's the pattern the hand-rolled ``booking_agent_middleware.py``
     demonstrates. Pick whichever fits your operational stance.
     """
+    label = v.tool_ref.label if v.tool_ref is not None else v.event_label
     raise ProtocolViolationError(
-        f"Illegal {v.phase}:{v.tool_ref.label} from state {v.current_state!r}; "
+        f"Illegal {v.phase}:{label} from state {v.current_state!r}; "
         f"expected one of {v.expected}; trace={v.trace}",
         violation=v,
     )
@@ -109,11 +124,11 @@ _GOOD_PROMPT = (
 )
 
 # Pushes the agent to call ``book_flight`` *first*, before ``search``.
-# Matches what an FSM keyed on tool-call ordering can actually catch:
-# the FSM has no notion of "agent text responses", so we can't enforce
-# ``!PresentOptions`` from this side. The DSL-based examples in this
-# folder catch text-step violations because the DSL models them; the
-# submodule's FSM is strictly about which tool fires when.
+# With 0.3.1's mixed transitions the FSM can also enforce skipping
+# ``!PresentOptions``/``?UserApproval`` (caught when the agent emits
+# text from a non-``search_done`` state, or attempts to book before
+# the user has approved) — but the simplest violation to demo is still
+# the tool-ordering one.
 _BOOK_FIRST_PROMPT = (
     "You are a quick booking agent. If the user names a flight (e.g. "
     "DL317), call book_flight directly with that flight_id and the "
@@ -187,6 +202,12 @@ def run_with_submodule(
                 print(f"[demo]  protocol terminal — state={monitor.state}, "
                       f"trace={monitor.trace}")
                 return "ok"
+            # Agent emitted text with no tool call — the protocol's
+            # !PresentOptions event. Fire it through the FSM; an
+            # out-of-order presentation raises via the violation
+            # handler, mirroring how an out-of-order tool call would.
+            monitor.transition_event("PresentOptions", "send")
+
             try:
                 user_msg = next(user_iter)
             except StopIteration:
@@ -196,12 +217,18 @@ def run_with_submodule(
             messages.append(HumanMessage(content=user_msg))
             printed_until = len(messages)
 
-            if project_user_message(user_msg) == UNRECOGNIZED:
+            projection = project_user_message(user_msg)
+            if projection == UNRECOGNIZED:
                 print(
                     "[demo]  user reply UNRECOGNIZED — outer loop would "
                     "ask user to clarify. Ending."
                 )
                 return "unrecognized"
+            # Project the user reply into the protocol's recv-side
+            # alphabet (here, only "UserApproval") and feed it to the
+            # FSM. The orchestrator owns this projection — the library
+            # does not interpret natural language.
+            monitor.transition_event(projection, "recv")
         else:
             continue
 

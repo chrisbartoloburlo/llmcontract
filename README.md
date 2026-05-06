@@ -259,6 +259,31 @@ print(monitor.is_complete()) # → True
 print(monitor.trace)        # → ["send:search", "recv:search", "send:book", "recv:book"]
 ```
 
+### Mixing tool calls and non-tool events (0.3.1+)
+
+`Transition` accepts either a `tool: ToolRef` (fired automatically by
+the middleware) **or** an `event_label: str` (fired explicitly by the
+orchestrator). Use `event_label` for agent text replies, projected
+user replies, timeouts, or any other non-tool signal you want the FSM
+to model:
+
+```python
+fsm.add_transition(Transition(source="results", phase="send",
+                              target="presented", event_label="PresentOptions"))
+fsm.add_transition(Transition(source="presented", phase="recv",
+                              target="approved", event_label="UserApproval"))
+
+# In the orchestrator, after the agent emits a text reply:
+monitor.transition_event("PresentOptions", "send")
+
+# After the user reply is projected:
+monitor.transition_event("UserApproval", "recv")
+```
+
+Same FSM, two firing surfaces — the middleware for tool events, the
+orchestrator for everything else. The library never interprets natural
+language; the orchestrator owns the projection.
+
 When to pick this over the DSL `Monitor`:
 
 - You're already in a LangChain stack and want a drop-in `AgentMiddleware`

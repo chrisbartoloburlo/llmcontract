@@ -205,3 +205,45 @@ class TestValidEvents:
 
     def test_unknown_state_returns_empty_list(self) -> None:
         assert ProtocolFSM(initial="a").valid_events("nowhere") == []
+
+
+# ── event_label transitions (free-form, non-tool events) ────
+
+
+class TestEventLabelTransition:
+    def test_event_label_constructs(self) -> None:
+        t = Transition(
+            source="a", phase="send", target="b", event_label="PresentOptions"
+        )
+        assert t.event == "send:PresentOptions"
+
+    def test_neither_tool_nor_event_label_raises(self) -> None:
+        with pytest.raises(ValueError, match="exactly one"):
+            Transition(source="a", phase="send", target="b")
+
+    def test_both_tool_and_event_label_raises(self) -> None:
+        with pytest.raises(ValueError, match="exactly one"):
+            Transition(
+                source="a",
+                phase="send",
+                target="b",
+                tool=_ref("search"),
+                event_label="PresentOptions",
+            )
+
+    def test_event_label_step_fires(self) -> None:
+        fsm = ProtocolFSM(initial="a").add_transition(
+            Transition(
+                source="a", phase="send", target="b", event_label="PresentOptions"
+            )
+        )
+        ctx = MonitorContext(
+            current_state="a",
+            event="send:PresentOptions",
+            tool_ref=None,
+            phase="send",
+            trace=["send:PresentOptions"],
+            event_label="PresentOptions",
+        )
+        next_state, ok = fsm.step("a", "send:PresentOptions", ctx)
+        assert ok and next_state == "b"
