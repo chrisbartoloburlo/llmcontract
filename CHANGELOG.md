@@ -1,5 +1,69 @@
 # Changelog
 
+## 0.4.0 — 2026-05-08
+
+### Changed (breaking)
+
+- **`ProtocolEnforcerMiddleware` is replaced by
+  `CheckpointedProtocolMiddleware`.** The 0.3.x middleware stored FSM
+  state on a `ProtocolMonitor` instance attribute, which was lost
+  whenever LangGraph rehydrated the graph from a checkpoint — after a
+  `HumanInTheLoopMiddleware` interrupt, after a worker restart, or in
+  any multi-pod deployment. It also raced when one middleware instance
+  was reused across concurrent agent invocations. The new middleware
+  stores FSM state in a `ProtocolState` `AgentState` subclass
+  (`fsm_state: str`, `fsm_trace: list[str]`); LangGraph checkpoints
+  it automatically, keys it by `thread_id`, and resumes correctly.
+
+  Read the final FSM state from `result["fsm_state"]` and the full
+  trace from `result["fsm_trace"]` after `agent.invoke(...)`.
+
+  No deprecation period — this is a known production correctness fix
+  and pre-1.0, so the old class is removed rather than aliased.
+
+### Added
+
+- **`Transition.interrupt: bool = False`** — when `True`, the
+  middleware suspends the agent via `langgraph.types.interrupt(...)`
+  before any model call from the transition's source state, and
+  fires the transition with the resume value as metadata. Eliminates
+  the "orchestrator forgot to fire the gate" failure class — the gate
+  becomes framework-enforced. The resume value either supplies an
+  explicit `event_label` (for protocols where multiple interrupt
+  transitions share a source state) or, when there's only one
+  candidate, becomes the transition metadata directly.
+
+  Only valid on `event_label`-based transitions; tool-backed
+  transitions are inherently driven by `wrap_tool_call` rather than
+  by interrupt resumption.
+
+- **`Transition.match_structured_response: type | None = None`** —
+  when set, the middleware fires the transition deterministically in
+  `after_model` whenever `state["structured_response"]` is an instance
+  of that type. Use with `response_format=...` on the agent for
+  reliable detection of non-tool agent events without text-pattern
+  parsing.
+
+- **`fire_step` helper** in `llmcontract.langchain.monitor` — pure
+  transition-firing function shared by `ProtocolMonitor` (in-process
+  state) and `CheckpointedProtocolMiddleware` (state in the
+  LangGraph checkpoint). Exposed publicly for callers who want to
+  drive the FSM from custom contexts.
+
+### Updated
+
+- The `examples/langchain_booking/booking_agent_submodule.py` example
+  now uses `CheckpointedProtocolMiddleware`, an `interrupt=True`
+  approval gate, and the `Command(resume=...)` pattern. The protocol
+  was simplified to compress `!PresentOptions` into the
+  `?UserApproval` interrupt — the agent's text reply is delivered
+  with the interrupt payload as user-facing context, and the
+  interrupt itself is the gate. Demonstrates a fully
+  framework-enforced approval flow with no orchestrator-side `fire_step`.
+
+- 16 tests (`test_langchain_middleware.py`) rewritten for the new
+  architecture. Total test count: 128.
+
 ## 0.3.1 — 2026-05-04
 
 ### Added

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "llmsessioncontract"
-version = "0.3.1"
+version = "0.4.0"
 description = "Runtime monitor for LLM agent interaction protocols based on session type theory"
 requires-python = ">=3.10"
 license = "MIT"

@@ -13,7 +13,7 @@ project README:
 |---|---|---|
 | **`booking_agent.py`** | Explicit orchestration loop with `monitor.send()` / `monitor.receive()` called inline against the DSL-based `Monitor`. Pedagogical — every event fires from a visible line of code. | First, to understand what monitoring an agent looks like end-to-end. |
 | **`booking_agent_middleware.py`** | Same protocol, hand-rolled `AgentMiddleware` subclass against the DSL-based `Monitor`. Useful for understanding what the canonical submodule abstracts away, including the `monitor._halted = False` workaround needed before 0.3.0. | Second, to see how an integration looks when written from scratch. |
-| **`booking_agent_submodule.py`** | Production shape — uses `llmcontract.langchain.ProtocolEnforcerMiddleware` (shipped in 0.3.0). Tool refs via `ref(fn)`, FSM-as-data with guards/actions per transition, user-controlled `on_violation`. About 40 lines of FSM definition; the rest is `create_agent` boilerplate. | Last. This is what real adopters should copy. |
+| **`booking_agent_submodule.py`** | Production shape — uses `llmcontract.langchain.CheckpointedProtocolMiddleware` (0.4.0). FSM state lives in LangGraph's checkpointed `AgentState`, the user-approval gate is enforced via `langgraph.types.interrupt`, and tool refs come from `ref(fn)`. About 40 lines of FSM definition plus `create_agent` boilerplate. | Last. This is what real adopters should copy. |
 
 ## `booking_agent.py` — three demos with explicit orchestration
 

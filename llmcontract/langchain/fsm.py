@@ -99,6 +99,23 @@ class Transition:
     not be assigned by the developer. ``guard`` (if set) decides whether
     the edge fires; ``action`` (if set) runs as a side effect when the
     edge commits.
+
+    Two flags govern *who* fires the transition when the
+    ``CheckpointedProtocolMiddleware`` is in use:
+
+    * ``interrupt=True`` — the middleware suspends the agent via
+      ``langgraph.types.interrupt(...)`` when the FSM enters this
+      transition's source state, and fires the transition on resume.
+      Eliminates the "orchestrator forgot to call ``transition_event``"
+      class of bug for approval gates.
+    * ``match_structured_response`` — the middleware fires this
+      transition automatically when the model emits a typed
+      ``structured_response`` matching the given type (checked via
+      ``isinstance``). Use with ``response_format`` on the agent.
+
+    Both flags are inert under ``ProtocolMonitor`` (the in-process,
+    non-LangChain runner). They only activate when running inside
+    ``CheckpointedProtocolMiddleware``.
     """
 
     source: str
@@ -108,6 +125,8 @@ class Transition:
     event_label: str | None = None
     guard: Callable[[MonitorContext], bool] | None = None
     action: Callable[[MonitorContext], None] | None = None
+    interrupt: bool = False
+    match_structured_response: type | None = None
 
     def __post_init__(self) -> None:
         if self.phase not in _VALID_PHASES:
@@ -118,6 +137,25 @@ class Transition:
         if (self.tool is None) == (self.event_label is None):
             raise ValueError(
                 "Transition requires exactly one of `tool` or `event_label`"
+            )
+        if self.interrupt and self.tool is not None:
+            raise ValueError(
+                "Transition.interrupt=True requires event_label; "
+                "tool-backed transitions fire from wrap_tool_call, not "
+                "from interrupt resumption"
+            )
+        if self.match_structured_response is not None and self.tool is not None:
+            raise ValueError(
+                "Transition.match_structured_response requires event_label; "
+                "tool-backed transitions are matched by tool name, not "
+                "by structured_response type"
+            )
+        if self.interrupt and self.match_structured_response is not None:
+            raise ValueError(
+                "Transition.interrupt and match_structured_response are "
+                "mutually exclusive — interrupt fires from before_model on "
+                "the source state, match_structured_response fires from "
+                "after_model on the model output"
             )
 
     @property
@@ -180,6 +218,31 @@ class ProtocolFSM:
         Returns ``[]`` when ``state`` is unknown or has no outgoing edges.
         """
         return [event for (src, event) in self._transitions if src == state]
+
+    def interrupt_transitions_from(self, state: str) -> list[Transition]:
+        """Outgoing transitions from ``state`` that have ``interrupt=True``.
+
+        The middleware uses this in ``before_model`` to decide whether
+        to suspend the agent on ``langgraph.types.interrupt``.
+        """
+        return [
+            t for (src, _), t in self._transitions.items()
+            if src == state and t.interrupt
+        ]
+
+    def structured_response_transitions_from(
+        self, state: str
+    ) -> list[Transition]:
+        """Outgoing transitions from ``state`` that have a
+        ``match_structured_response`` declared.
+
+        The middleware uses this in ``after_model`` to fire transitions
+        based on typed ``structured_response`` values.
+        """
+        return [
+            t for (src, _), t in self._transitions.items()
+            if src == state and t.match_structured_response is not None
+        ]
 
     def step(
         self,

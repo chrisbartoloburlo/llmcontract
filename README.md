@@ -206,8 +206,8 @@ while True:
 A focused FSM-as-data API for users who want to wire protocol monitoring
 into LangChain agents without touching the DSL parser. Tool references
 are real Python callables, transitions are explicit objects with
-optional guards and actions, and violation handling is fully
-user-controlled.
+optional guards, actions, and approval-gate interrupts, and violation
+handling is fully user-controlled.
 
 ```bash
 pip install llmsessioncontract[langchain]
@@ -216,9 +216,11 @@ pip install llmsessioncontract[langchain]
 ```python
 from langchain_core.tools import tool
 from langchain.agents import create_agent
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Command
 from llmcontract.langchain import (
-    ProtocolFSM, Transition, ProtocolMonitor,
-    ProtocolEnforcerMiddleware, ViolationEvent,
+    ProtocolFSM, Transition,
+    CheckpointedProtocolMiddleware, ViolationEvent,
     ProtocolViolationError, ref,
 )
 
@@ -239,50 +241,72 @@ fsm = (
     ProtocolFSM(initial="idle")
     .add_transition(Transition(source="idle", tool=search_ref, phase="send", target="searching"))
     .add_transition(Transition(source="searching", tool=search_ref, phase="recv", target="results"))
-    .add_transition(Transition(source="results", tool=book_ref, phase="send", target="booking",
-                               guard=lambda ctx: bool(ctx.metadata.get("args", {}))))
+    .add_transition(Transition(
+        source="results", phase="recv", target="approved",
+        event_label="UserApproval", interrupt=True,   # framework-enforced gate
+    ))
+    .add_transition(Transition(source="approved", tool=book_ref, phase="send", target="booking"))
     .add_transition(Transition(source="booking", tool=book_ref, phase="recv", target="done"))
     .mark_terminal("done")
 )
 
 def on_violation(v: ViolationEvent) -> None:
-    raise ProtocolViolationError(f"Illegal {v.phase}:{v.tool_ref.label} from {v.current_state!r}", violation=v)
+    label = v.tool_ref.label if v.tool_ref else v.event_label
+    raise ProtocolViolationError(f"Illegal {v.phase}:{label} from {v.current_state!r}", violation=v)
 
-monitor = ProtocolMonitor(fsm=fsm, on_violation=on_violation)
-middleware = ProtocolEnforcerMiddleware(monitor=monitor, tool_refs=[search_ref, book_ref]).middleware
+middleware = CheckpointedProtocolMiddleware(
+    fsm=fsm, on_violation=on_violation, tool_refs=[search_ref, book_ref],
+).middleware
 
-agent = create_agent(model=..., tools=[search, book], middleware=[middleware])
-agent.invoke({"messages": [("user", "Book me a flight to Rome.")]})
+# interrupt-gated transitions require a checkpointer.
+agent = create_agent(
+    model=..., tools=[search, book], middleware=[middleware],
+    checkpointer=InMemorySaver(),
+)
 
-print(monitor.state)        # → "done"
-print(monitor.is_complete()) # → True
-print(monitor.trace)        # → ["send:search", "recv:search", "send:book", "recv:book"]
+config = {"configurable": {"thread_id": "demo-1"}}
+result = agent.invoke({"messages": [("user", "Book me a flight to Rome.")]}, config=config)
+
+# When the FSM enters `results`, the middleware suspends on `interrupt()`.
+# The result carries an `__interrupt__` payload with the protocol context.
+if result.get("__interrupt__"):
+    result = agent.invoke(
+        Command(resume={"event_label": "UserApproval"}),
+        config=config,
+    )
+
+print(result["fsm_state"])     # → "done"
+print(result["fsm_trace"])     # → ["send:search", "recv:search",
+                               #    "recv:UserApproval",
+                               #    "send:book", "recv:book"]
 ```
 
-### Mixing tool calls and non-tool events (0.3.1+)
+### Non-tool events: three firing surfaces (0.4.0+)
 
 `Transition` accepts either a `tool: ToolRef` (fired automatically by
-the middleware) **or** an `event_label: str` (fired explicitly by the
-orchestrator). Use `event_label` for agent text replies, projected
-user replies, timeouts, or any other non-tool signal you want the FSM
-to model:
+the middleware on tool calls) or an `event_label: str` (for free-form
+events — agent text replies, user replies, timeouts, etc.).
+Event-label transitions support three firing modes:
 
-```python
-fsm.add_transition(Transition(source="results", phase="send",
-                              target="presented", event_label="PresentOptions"))
-fsm.add_transition(Transition(source="presented", phase="recv",
-                              target="approved", event_label="UserApproval"))
+1. **Interrupt-gated** (`interrupt=True`) — the middleware suspends
+   the agent on `langgraph.types.interrupt(...)` from the source
+   state and fires the transition on `Command(resume=...)`. The
+   gate is framework-enforced; the orchestrator *cannot* skip it.
+   Best for human-approval steps on irreversible actions.
 
-# In the orchestrator, after the agent emits a text reply:
-monitor.transition_event("PresentOptions", "send")
+2. **Structured-response matched** (`match_structured_response=Type`) —
+   the middleware fires the transition deterministically in
+   `after_model` when `state["structured_response"]` is an instance
+   of the given type. Use with `response_format=Type` on the agent.
+   Best for non-tool agent events that need to be reliably detected.
 
-# After the user reply is projected:
-monitor.transition_event("UserApproval", "recv")
-```
+3. **Orchestrator-fired** — the orchestrator (or any non-LangChain
+   loop) calls `monitor.transition_event(label, phase, metadata)` on
+   a `ProtocolMonitor`. Best for events the framework can't see —
+   e.g., natural-language user replies in a custom orchestration loop.
 
-Same FSM, two firing surfaces — the middleware for tool events, the
-orchestrator for everything else. The library never interprets natural
-language; the orchestrator owns the projection.
+The library never interprets natural language; the orchestrator owns
+the projection from raw input to protocol-level event labels.
 
 When to pick this over the DSL `Monitor`:
 

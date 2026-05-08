@@ -6,6 +6,10 @@ state and the trace of every event that has fired so far. Calls the
 user-supplied ``on_violation`` handler whenever the FSM rejects a
 transition.
 
+The module also exposes a pure ``fire_step`` helper that
+``CheckpointedProtocolMiddleware`` uses to drive the FSM through
+LangGraph-checkpointed state instead of through an in-memory monitor.
+
 This module does not import LangChain.
 """
 
@@ -20,6 +24,60 @@ from llmcontract.langchain.fsm import (
     ViolationHandler,
 )
 from llmcontract.langchain.tool_ref import ToolRef
+
+
+def fire_step(
+    *,
+    fsm: ProtocolFSM,
+    state: str,
+    trace: list[str],
+    label: str,
+    phase: str,
+    tool_ref: ToolRef | None,
+    event_label: str | None,
+    metadata: dict[str, Any] | None,
+    on_violation: ViolationHandler,
+) -> tuple[str, list[str], bool]:
+    """Pure transition firing — no instance state held anywhere.
+
+    Builds the event string from ``phase``/``label``, appends it to a
+    fresh copy of ``trace``, runs the FSM step, and on violation calls
+    ``on_violation`` with a populated ``ViolationEvent``.
+
+    Returns ``(new_state, new_trace, ok)``. ``new_trace`` always
+    includes the attempted event, even on violation, so the trace
+    history matches what ``ProtocolMonitor`` would record.
+
+    Used by both ``ProtocolMonitor`` (for in-process state) and the
+    ``CheckpointedProtocolMiddleware`` (for state held in
+    LangGraph's ``AgentState`` checkpoint).
+    """
+    event = f"{phase}:{label}"
+    new_trace = [*trace, event]
+    ctx = MonitorContext(
+        current_state=state,
+        event=event,
+        tool_ref=tool_ref,
+        phase=phase,
+        trace=list(new_trace),
+        event_label=event_label,
+        metadata=dict(metadata) if metadata else {},
+    )
+    next_state, ok = fsm.step(state, event, ctx)
+    if ok:
+        return next_state, new_trace, True
+    on_violation(
+        ViolationEvent(
+            current_state=state,
+            event=event,
+            expected=fsm.valid_events(state),
+            trace=list(new_trace),
+            tool_ref=tool_ref,
+            phase=phase,
+            event_label=event_label,
+        )
+    )
+    return state, new_trace, False
 
 
 class ProtocolMonitor:
@@ -108,41 +166,22 @@ class ProtocolMonitor:
         event_label: str | None,
         metadata: dict[str, Any] | None,
     ) -> bool:
-        event = f"{phase}:{label}"
-        # The trace records the *attempted* event regardless of outcome,
-        # so violation handlers see the full history including the
-        # violating step. ``ViolationEvent.trace`` and
-        # ``MonitorContext.trace`` are both snapshot copies, never
-        # references to this list.
-        self._trace.append(event)
-
-        ctx = MonitorContext(
-            current_state=self._state,
-            event=event,
-            tool_ref=tool_ref,
+        new_state, new_trace, ok = fire_step(
+            fsm=self._fsm,
+            state=self._state,
+            trace=self._trace,
+            label=label,
             phase=phase,
-            trace=list(self._trace),
+            tool_ref=tool_ref,
             event_label=event_label,
-            metadata=dict(metadata) if metadata else {},
+            metadata=metadata,
+            on_violation=self._on_violation,
         )
-
-        next_state, ok = self._fsm.step(self._state, event, ctx)
-        if ok:
-            self._state = next_state
-            return True
-
-        self._on_violation(
-            ViolationEvent(
-                current_state=self._state,
-                event=event,
-                expected=self._fsm.valid_events(self._state),
-                trace=list(self._trace),
-                tool_ref=tool_ref,
-                phase=phase,
-                event_label=event_label,
-            )
-        )
-        return False
+        # On violation, fire_step returns the unchanged state but still
+        # includes the attempted event in the trace — match that here.
+        self._state = new_state
+        self._trace[:] = new_trace
+        return ok
 
     def reset(self) -> None:
         """Restore the monitor to its initial state and clear the trace.

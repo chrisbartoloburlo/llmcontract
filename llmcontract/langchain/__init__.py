@@ -12,8 +12,8 @@ https://llmcontract.dev/findings/ and in the project README.
 Submodules:
     tool_ref     ToolRef, ref()
     fsm          ProtocolFSM, Transition, MonitorContext, ViolationEvent
-    monitor      ProtocolMonitor
-    middleware   ProtocolEnforcerMiddleware
+    monitor      ProtocolMonitor, fire_step
+    middleware   CheckpointedProtocolMiddleware
     exceptions   ProtocolViolationError
 """
 
@@ -25,8 +25,8 @@ from llmcontract.langchain.fsm import (
     ViolationEvent,
     ViolationHandler,
 )
-from llmcontract.langchain.middleware import ProtocolEnforcerMiddleware
-from llmcontract.langchain.monitor import ProtocolMonitor
+from llmcontract.langchain.middleware import CheckpointedProtocolMiddleware
+from llmcontract.langchain.monitor import ProtocolMonitor, fire_step
 from llmcontract.langchain.tool_ref import ToolRef, ref
 
 __all__ = [
@@ -38,6 +38,7 @@ __all__ = [
     "ViolationEvent",
     "ViolationHandler",
     "ProtocolMonitor",
-    "ProtocolEnforcerMiddleware",
+    "fire_step",
+    "CheckpointedProtocolMiddleware",
     "ProtocolViolationError",
 ]

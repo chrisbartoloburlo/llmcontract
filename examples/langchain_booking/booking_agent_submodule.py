@@ -1,27 +1,44 @@
 """Booking agent wired up via the canonical ``llmcontract.langchain``
-submodule (shipped in 0.3.0; mixed transitions added in 0.3.1).
+submodule.
 
-This is the production-shape integration. Compare with:
+This is the production-shape integration as of 0.4.0. Compare with:
 
   * ``booking_agent.py`` — explicit ``monitor.send/receive`` loop, no
     middleware. Pedagogical baseline.
   * ``booking_agent_middleware.py`` — hand-rolled ``AgentMiddleware``
     subclass against the DSL-based ``llmcontract.Monitor``. Useful for
     understanding what the submodule abstracts away.
-  * **this file** — drop-in ``ProtocolEnforcerMiddleware`` from
-    ``llmcontract.langchain``. ~40 lines of FSM definition and the rest
-    is standard ``create_agent`` boilerplate.
+  * **this file** — drop-in ``CheckpointedProtocolMiddleware`` from
+    ``llmcontract.langchain``. FSM state lives in LangGraph's
+    checkpointed ``AgentState``, the user-approval gate is enforced
+    via ``langgraph.types.interrupt``, and the rest is standard
+    ``create_agent`` boilerplate.
 
-The FSM models the *full* canonical booking protocol — both the
-tool-call edges (``!SearchFlights`` / ``?FlightResults`` /
-``!BookFlight`` / ``?BookingConfirmation``) and the non-tool edges
-(``!PresentOptions``, ``?UserApproval``). Tool-backed transitions use
-``tool=`` and fire automatically through the middleware; non-tool
-transitions use ``event_label=`` and are fired explicitly by the
-orchestrator via ``monitor.transition_event(...)``. This split
-(middleware for tool events, orchestrator for user/agent-text events)
-is the right factoring for any agent monitored against a session-type
-contract.
+What changed in 0.4.0
+─────────────────────
+
+* **State persistence** — FSM state is held in ``AgentState``
+  (``fsm_state``, ``fsm_trace``), so it survives ``interrupt()``
+  resumes, worker restarts, and multi-pod deployments. The 0.3.x
+  middleware stored state as an instance attribute, which broke the
+  moment LangGraph rehydrated from a checkpoint.
+
+* **Approval-gate enforcement** — the ``?UserApproval`` transition is
+  declared with ``interrupt=True``. The middleware suspends the agent
+  via ``langgraph.types.interrupt`` automatically when the FSM enters
+  ``presented``; the orchestrator *cannot* forget to gate. Resuming
+  with ``Command(resume=...)`` carries the approval back.
+
+* **Tool-call coverage** — ``!SearchFlights``/``?FlightResults`` and
+  ``!BookFlight``/``?BookingConfirmation`` still flow through
+  ``wrap_tool_call``, exactly as in 0.3.x.
+
+The ``!PresentOptions`` event remains an orchestrator-fired
+``transition_event`` for now — switching it to
+``match_structured_response`` would require constraining the agent's
+text reply via ``response_format``, which is a separate change in
+agent setup. The 0.4.0 middleware supports both modes; this example
+shows the simpler one.
 """
 
 from __future__ import annotations
@@ -29,6 +46,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent))
 from booking_agent import (  # noqa: E402
@@ -40,9 +58,8 @@ from booking_agent import (  # noqa: E402
 
 from llmcontract import UNRECOGNIZED  # noqa: E402
 from llmcontract.langchain import (  # noqa: E402
-    ProtocolEnforcerMiddleware,
+    CheckpointedProtocolMiddleware,
     ProtocolFSM,
-    ProtocolMonitor,
     ProtocolViolationError,
     Transition,
     ViolationEvent,
@@ -55,38 +72,43 @@ _load_dotenv(Path(__file__).parent / ".env")
 
 # ── Tool refs and FSM ────────────────────────────────────────
 
-# Tool refs derive their stable label from the @tool callables — never
-# from a string. Adding a new tool means adding one decorator and one
-# `ref(fn)` line; no string lookups anywhere in the user-facing API.
 search_ref = ref(search_flights)
 book_ref = ref(book_flight)
 
 
 def _build_fsm() -> ProtocolFSM:
-    """The full canonical booking protocol as an explicit FSM table.
+    """Booking protocol as an explicit FSM table.
 
-    Tool edges (``tool=...``) fire from the middleware. Non-tool edges
-    (``event_label=...``) fire from the orchestrator via
-    ``monitor.transition_event(...)``. Same FSM, two firing surfaces.
+    The 0.4.0 demo deliberately compresses ``!PresentOptions`` into the
+    ``?UserApproval`` interrupt: the agent's text reply listing the
+    options is delivered as part of the interrupt payload, and the
+    interrupt itself *is* the approval gate. This makes the protocol
+    fully framework-enforced — no event in the FSM is fired from the
+    orchestrator's side.
 
-    The FSM is rebuilt per session because ``ProtocolFSM`` itself is
-    immutable but ``ProtocolMonitor`` (which holds runtime state)
-    expects to be constructed fresh per agent invocation. We could
-    share one FSM across monitors — it's stateless after construction —
-    but the per-session pattern keeps the wiring uniform with the rest
-    of the example.
+    ``UserApproval`` carries ``interrupt=True``: when the FSM enters
+    the ``search_done`` state, the middleware pauses the agent on
+    ``langgraph.types.interrupt`` before the next model call, and the
+    caller drives the approval via ``Command(resume=...)``. The
+    orchestrator *cannot* skip this gate — that was the leak in
+    0.3.x's "orchestrator must remember to call ``transition_event``"
+    pattern.
+
+    For protocols that genuinely need a separate ``!PresentOptions``
+    event, the cleanest path is structured output: declare
+    ``response_format=PresentOptionsResponse`` on the agent and
+    ``match_structured_response=PresentOptionsResponse`` on the
+    transition. The middleware then fires it deterministically from
+    ``after_model``. See ``test_langchain_middleware.py`` for the
+    pattern; not shown in this demo to keep agent setup minimal.
     """
     return (
         ProtocolFSM(initial="idle")
         .add_transition(Transition(source="idle", tool=search_ref, phase="send", target="searching"))
         .add_transition(Transition(source="searching", tool=search_ref, phase="recv", target="search_done"))
         .add_transition(Transition(
-            source="search_done", phase="send", target="presented",
-            event_label="PresentOptions",
-        ))
-        .add_transition(Transition(
-            source="presented", phase="recv", target="approved",
-            event_label="UserApproval",
+            source="search_done", phase="recv", target="approved",
+            event_label="UserApproval", interrupt=True,
         ))
         .add_transition(Transition(source="approved", tool=book_ref, phase="send", target="booking"))
         .add_transition(Transition(source="booking", tool=book_ref, phase="recv", target="done"))
@@ -95,16 +117,7 @@ def _build_fsm() -> ProtocolFSM:
 
 
 def _raise_on_violation(v: ViolationEvent) -> None:
-    """Strict enforcement — surface as an exception. The library never
-    raises itself; we choose to here because the booking flow has no
-    way to recover from an out-of-order event mid-session.
-
-    A self-correcting alternative is to return normally from this
-    handler and have ``wrap_tool_call`` surface a ``ToolMessage`` with
-    ``status="error"`` so the agent sees the refusal on its next turn —
-    that's the pattern the hand-rolled ``booking_agent_middleware.py``
-    demonstrates. Pick whichever fits your operational stance.
-    """
+    """Strict enforcement — surface as an exception."""
     label = v.tool_ref.label if v.tool_ref is not None else v.event_label
     raise ProtocolViolationError(
         f"Illegal {v.phase}:{label} from state {v.current_state!r}; "
@@ -123,17 +136,26 @@ _GOOD_PROMPT = (
     "call the book_flight tool to reserve it. Be concise."
 )
 
-# Pushes the agent to call ``book_flight`` *first*, before ``search``.
-# With 0.3.1's mixed transitions the FSM can also enforce skipping
-# ``!PresentOptions``/``?UserApproval`` (caught when the agent emits
-# text from a non-``search_done`` state, or attempts to book before
-# the user has approved) — but the simplest violation to demo is still
-# the tool-ordering one.
 _BOOK_FIRST_PROMPT = (
     "You are a quick booking agent. If the user names a flight (e.g. "
     "DL317), call book_flight directly with that flight_id and the "
     "passenger name. Do not search first — the user has already chosen."
 )
+
+
+def _print_messages(messages: list, printed_until: int) -> int:
+    for m in messages[printed_until:]:
+        t = getattr(m, "type", None)
+        if t == "ai":
+            for tc in getattr(m, "tool_calls", None) or []:
+                print(f"[agent] tool: {tc['name']}({tc.get('args', {})})")
+            content = m.content if isinstance(m.content, str) else ""
+            if content.strip():
+                print(f"[agent] {content.strip()[:200]}")
+        elif t == "tool":
+            content = m.content if isinstance(m.content, str) else str(m.content)
+            print(f"[tool]  {content[:150]}")
+    return len(messages)
 
 
 def run_with_submodule(
@@ -147,66 +169,50 @@ def run_with_submodule(
     from langchain.agents import create_agent
     from langchain_anthropic import ChatAnthropic
     from langchain_core.messages import HumanMessage
+    from langgraph.checkpoint.memory import InMemorySaver
+    from langgraph.types import Command
 
     print(f"\n══════════ {label} ══════════")
     print(f"[user]  {user_request}")
 
-    monitor = ProtocolMonitor(fsm=_build_fsm(), on_violation=_raise_on_violation)
-    middleware = ProtocolEnforcerMiddleware(
-        monitor=monitor, tool_refs=[search_ref, book_ref]
+    fsm = _build_fsm()
+    middleware = CheckpointedProtocolMiddleware(
+        fsm=fsm, on_violation=_raise_on_violation,
+        tool_refs=[search_ref, book_ref],
     ).middleware
+
+    # interrupt() requires a checkpointer. InMemorySaver is fine for the
+    # demo; production would use SqliteSaver / PostgresSaver / etc.
+    checkpointer = InMemorySaver()
 
     agent = create_agent(
         model=ChatAnthropic(model=model, max_tokens=512),
         tools=[search_flights, book_flight],
         system_prompt=system_prompt,
         middleware=[middleware],
+        checkpointer=checkpointer,
     )
 
-    messages: list = [HumanMessage(content=user_request)]
+    config = {"configurable": {"thread_id": label}}
     user_iter = iter(user_replies)
-    printed_until = len(messages)
-
-    def _print_new(msgs: list) -> None:
-        nonlocal printed_until
-        for m in msgs[printed_until:]:
-            t = getattr(m, "type", None)
-            if t == "ai":
-                for tc in getattr(m, "tool_calls", None) or []:
-                    print(f"[agent] tool: {tc['name']}({tc.get('args', {})})")
-                content = m.content if isinstance(m.content, str) else ""
-                if content.strip():
-                    print(f"[agent] {content.strip()[:200]}")
-            elif t == "tool":
-                content = m.content if isinstance(m.content, str) else str(m.content)
-                print(f"[tool]  {content[:150]}")
-        printed_until = len(msgs)
+    printed_until = 0
+    inputs: Any = {"messages": [HumanMessage(content=user_request)]}
 
     for _ in range(4):
         try:
-            result = agent.invoke({"messages": messages})
+            result = agent.invoke(inputs, config=config)
         except ProtocolViolationError as exc:
             print(f"[demo]  PROTOCOL ABORT: {exc}")
             return "violated"
-        messages = result["messages"]
-        _print_new(messages)
 
-        last = messages[-1]
-        if getattr(last, "type", None) != "ai":
-            break
-        tool_calls = getattr(last, "tool_calls", None)
-        text = (last.content or "") if isinstance(last.content, str) else ""
+        printed_until = _print_messages(result.get("messages", []), printed_until)
 
-        if not tool_calls and text.strip():
-            if monitor.is_complete():
-                print(f"[demo]  protocol terminal — state={monitor.state}, "
-                      f"trace={monitor.trace}")
-                return "ok"
-            # Agent emitted text with no tool call — the protocol's
-            # !PresentOptions event. Fire it through the FSM; an
-            # out-of-order presentation raises via the violation
-            # handler, mirroring how an out-of-order tool call would.
-            monitor.transition_event("PresentOptions", "send")
+        # interrupt() fired — drain the payload, get user input,
+        # resume with the projected event_label.
+        if result.get("__interrupt__"):
+            payload = result["__interrupt__"][0].value
+            print(f"[demo]  interrupt fired — current_state="
+                  f"{payload['current_state']!r}, expected={payload['expected']}")
 
             try:
                 user_msg = next(user_iter)
@@ -214,24 +220,41 @@ def run_with_submodule(
                 print("[demo]  no more user replies; ending")
                 return "incomplete"
             print(f"[user]  {user_msg}")
-            messages.append(HumanMessage(content=user_msg))
-            printed_until = len(messages)
 
             projection = project_user_message(user_msg)
             if projection == UNRECOGNIZED:
-                print(
-                    "[demo]  user reply UNRECOGNIZED — outer loop would "
-                    "ask user to clarify. Ending."
-                )
+                print("[demo]  user reply UNRECOGNIZED — outer loop "
+                      "would clarify. Ending.")
                 return "unrecognized"
-            # Project the user reply into the protocol's recv-side
-            # alphabet (here, only "UserApproval") and feed it to the
-            # FSM. The orchestrator owns this projection — the library
-            # does not interpret natural language.
-            monitor.transition_event(projection, "recv")
-        else:
+
+            # Two channels at once: ``resume`` carries the protocol-
+            # level event_label that drives the FSM transition;
+            # ``update`` injects the user's natural-language reply
+            # into ``messages`` so the model sees it on its next turn.
+            # Without the message, the model wouldn't know which
+            # flight to book — the protocol-level fact "approved" is
+            # not the same as the natural-language fact "DL317".
+            inputs = Command(
+                update={"messages": [HumanMessage(content=user_msg)]},
+                resume={
+                    "event_label": projection,
+                    "metadata": {"text": user_msg},
+                },
+            )
             continue
 
+        # No interrupt — agent terminated. Either the protocol
+        # reached its terminal state (success) or the agent stopped
+        # short of it (incomplete).
+        fsm_state = result.get("fsm_state", "?")
+        if fsm.is_terminal(fsm_state):
+            print(f"[demo]  protocol terminal — fsm_state={fsm_state!r}, "
+                  f"trace={result.get('fsm_trace', [])}")
+            return "ok"
+        break
+
+    print(f"[demo]  loop exhausted; fsm_state={result.get('fsm_state')!r}, "
+          f"trace={result.get('fsm_trace')}")
     return "incomplete"
 
 
@@ -244,23 +267,21 @@ def main() -> int:
         system_prompt=_GOOD_PROMPT,
         user_request="Book me a flight from SFO to JFK on 2026-05-10.",
         user_replies=["Yes, book DL317 for C. Burlò."],
-        label="Demo 1 — happy path (llmcontract.langchain submodule)",
+        label="demo-1-happy-path",
     )
 
     run_with_submodule(
         system_prompt=_BOOK_FIRST_PROMPT,
-        user_request=(
-            "Book DL317 for C. Burlò. SFO to JFK on 2026-05-10."
-        ),
+        user_request="Book DL317 for C. Burlò. SFO to JFK on 2026-05-10.",
         user_replies=[],
-        label="Demo 2 — enforcement (book_flight before search_flights)",
+        label="demo-2-enforcement",
     )
 
     run_with_submodule(
         system_prompt=_GOOD_PROMPT,
         user_request="Book me a flight from SFO to JFK on 2026-05-10.",
         user_replies=["hmm let me think about it for a bit"],
-        label="Demo 3 — ambiguous user reply",
+        label="demo-3-ambiguous-user",
     )
 
     return 0
