@@ -72,6 +72,12 @@ class Monitor:
         self._automaton: Automaton = compile_ast(ast)
         self._current_state: int = self._automaton.initial_state
         self._halted: bool = False
+        # The trace records the *attempted* event for every send/receive
+        # call, including Unrecognized and violations and Blocked
+        # attempts. This makes the trace a faithful audit log:
+        # serializing it is sufficient to reconstruct the monitor's
+        # state by replay (see ``to_dict`` / ``from_dict``).
+        self._trace: list[str] = []
 
     @property
     def current_state(self) -> int:
@@ -85,6 +91,61 @@ class Monitor:
     def is_halted(self) -> bool:
         return self._halted
 
+    @property
+    def trace(self) -> list[str]:
+        """Snapshot copy of every event recorded since construction or
+        last ``reset()``. Format mirrors the DSL: ``"!Label"`` for send,
+        ``"?Label"`` for receive, ``"?Unrecognized"`` for the sentinel.
+        Mutating the returned list does not affect the monitor.
+        """
+        return list(self._trace)
+
+    def reset(self) -> None:
+        """Restore initial state and clear trace. Useful when reusing
+        one ``Monitor`` instance across multiple protocol sessions —
+        the cleaner pattern is one fresh ``Monitor`` per session, but
+        ``reset`` is provided for callers who pool resources.
+        """
+        self._current_state = self._automaton.initial_state
+        self._halted = False
+        self._trace.clear()
+
+    # ── Persistence ─────────────────────────────────────────
+
+    def to_dict(self) -> dict:
+        """Serialize the monitor's runtime state to a JSON-friendly
+        dict. Pair with ``from_dict(protocol, state)`` to persist state
+        across process restarts.
+
+        The protocol string is *not* included — callers pass the same
+        string to ``from_dict``. ``from_dict`` rebuilds state by
+        replaying the trace, which makes the round-trip robust against
+        internal automaton-numbering changes between releases: if the
+        protocol's semantics still accept the trace, restoration
+        succeeds; if they don't, restoration produces a halted monitor
+        whose trace records the exact event that no longer fits.
+        """
+        return {"trace": list(self._trace)}
+
+    @classmethod
+    def from_dict(cls, protocol: str, state: dict) -> "Monitor":
+        """Restore a monitor from a snapshot produced by ``to_dict``.
+
+        Replays the saved trace through a fresh monitor; the replay
+        advances ``current_state`` and sets ``is_halted`` exactly as
+        the original ran. Side effects of the original session — model
+        calls, tool calls, anything outside the monitor — are *not*
+        re-executed; ``from_dict`` only restores the monitor's own
+        bookkeeping.
+        """
+        m = cls(protocol)
+        for event in state.get("trace", []):
+            direction, label = _parse_event(event)
+            m._step(direction, label)
+        return m
+
+    # ── Stepping ───────────────────────────────────────────
+
     def send(self, label: str) -> MonitorResult:
         """Record a send event."""
         return self._step("send", label)
@@ -94,6 +155,11 @@ class Monitor:
         return self._step("receive", label)
 
     def _step(self, direction: str, label: str) -> MonitorResult:
+        event = f"{'!' if direction == 'send' else '?'}{label}"
+        # Record before any branching: trace captures every attempt
+        # regardless of outcome.
+        self._trace.append(event)
+
         if self._halted:
             return Blocked("monitor halted after a previous violation")
 
@@ -114,6 +180,18 @@ class Monitor:
         if label == UNRECOGNIZED:
             return Unrecognized(expected=expected, direction=direction)
 
-        got = f"{'!' if direction == 'send' else '?'}{label}"
         self._halted = True
-        return Violation(expected=expected, got=got)
+        return Violation(expected=expected, got=event)
+
+
+def _parse_event(event: str) -> tuple[str, str]:
+    """Reverse of ``f"{'!' if direction == 'send' else '?'}{label}"``.
+    Used by ``Monitor.from_dict`` to replay a serialized trace.
+    """
+    if not event or event[0] not in ("!", "?"):
+        raise ValueError(
+            f"trace entry {event!r} is not in the expected '!Label' / "
+            f"'?Label' format produced by Monitor.to_dict()"
+        )
+    direction = "send" if event[0] == "!" else "receive"
+    return direction, event[1:]

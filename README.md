@@ -109,6 +109,23 @@ m.receive("Yes")         # Ok — terminal
 
 The distinction matters at the system boundary: `Violation` means the agent broke the rules; `Unrecognized` means we don't have enough information to decide yet. Different responses (halt vs. clarify) come naturally from the typed result.
 
+### Persistence (0.4.1+)
+
+Every `Monitor` keeps a `trace` of every send/receive attempt — accepted, violating, blocked, or unrecognized — and exposes it as an audit log. The same trace is the basis of state persistence: `to_dict()` snapshots it, `from_dict(protocol, state)` rebuilds the monitor by replay.
+
+```python
+m = Monitor(protocol)
+m.send("Ask"); m.receive("Yes")
+print(m.trace)  # → ["!Ask", "?Yes"]
+
+snapshot = m.to_dict()  # → {"trace": ["!Ask", "?Yes"]}
+# ... persist `snapshot` to Redis / postgres / disk / wherever ...
+restored = Monitor.from_dict(protocol, snapshot)
+assert restored.current_state == m.current_state
+```
+
+The library is storage-agnostic. Pair with any persistence layer; no orchestration is imposed on the caller.
+
 ## Integration Layer
 
 For real agent loops, `llmcontract` provides a client wrapper and tool middleware that share a single monitor — so the full interaction is tracked automatically.

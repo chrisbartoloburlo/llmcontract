@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.4.1 — 2026-05-08
+
+### Added
+
+- **`Monitor.trace`** — every send/receive call now records the
+  attempted event into a per-monitor trace list (format mirrors the
+  DSL: `"!Label"` / `"?Label"`). Captures violations, `Blocked`
+  attempts, and `Unrecognized` attempts alongside accepted events,
+  so the trace is a faithful audit log of the session.
+
+- **`Monitor.to_dict()` / `Monitor.from_dict(protocol, state)`** —
+  serializable runtime-state snapshot for persistence across process
+  restarts. `from_dict` rebuilds state by replaying the saved trace
+  through a fresh monitor, which makes the round-trip robust against
+  internal automaton-numbering changes between releases.
+
+  Pair with any persistence layer (Redis, postgres, S3, files) — the
+  library itself stays storage-agnostic. The protocol string is *not*
+  embedded in the snapshot; callers pass it to `from_dict`.
+
+- **`Monitor.reset()`** — restore initial state and clear the trace.
+  Symmetric with the langchain submodule's `ProtocolMonitor.reset()`.
+
+These bring the DSL-based core monitor up to the same operational
+shape as the 0.4.0 LangChain submodule: serializable state, audit
+trail, restartable. No breaking changes — every addition is purely
+additive on top of the existing 0.4.0 API.
+
 ## 0.4.0 — 2026-05-08
 
 ### Changed (breaking)

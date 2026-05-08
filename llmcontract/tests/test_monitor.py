@@ -213,3 +213,116 @@ class TestUnrecognized:
         assert isinstance(m.receive("No"), Violation)
         # Once halted, even Unrecognized is rejected as Blocked
         assert isinstance(m.receive(UNRECOGNIZED), Blocked)
+
+
+class TestTrace:
+    """The trace records every send/receive attempt, regardless of outcome."""
+
+    def test_trace_starts_empty(self):
+        m = Monitor(FLIGHT_PROTOCOL)
+        assert m.trace == []
+
+    def test_trace_records_each_event(self):
+        m = Monitor(FLIGHT_PROTOCOL)
+        m.send("SearchFlights")
+        m.receive("FlightResults")
+        assert m.trace == ["!SearchFlights", "?FlightResults"]
+
+    def test_trace_records_violations_and_subsequent_blocked(self):
+        m = Monitor("!A.?B.end")
+        m.send("A")
+        m.send("Wrong")  # Violation — halts
+        m.send("Whatever")  # Blocked
+        assert m.trace == ["!A", "!Wrong", "!Whatever"]
+        assert m.is_halted
+
+    def test_trace_records_unrecognized_attempts(self):
+        m = Monitor(FLIGHT_PROTOCOL)
+        m.send("SearchFlights")
+        m.receive("FlightResults")
+        m.send("PresentOptions")
+        m.receive(UNRECOGNIZED)  # doesn't advance, but recorded
+        assert m.trace == [
+            "!SearchFlights", "?FlightResults",
+            "!PresentOptions", "?Unrecognized",
+        ]
+
+    def test_trace_property_is_a_copy(self):
+        m = Monitor(FLIGHT_PROTOCOL)
+        m.send("SearchFlights")
+        snapshot = m.trace
+        snapshot.append("garbage")
+        assert m.trace == ["!SearchFlights"]  # internal trace untouched
+
+
+class TestReset:
+    def test_reset_restores_initial_state_and_clears_trace(self):
+        m = Monitor(FLIGHT_PROTOCOL)
+        m.send("SearchFlights")
+        m.receive("FlightResults")
+        m.reset()
+        assert m.current_state == m._automaton.initial_state
+        assert m.trace == []
+        assert not m.is_halted
+
+    def test_reset_clears_halted_flag(self):
+        m = Monitor("?Yes.end")
+        m.receive("No")  # violation
+        assert m.is_halted
+        m.reset()
+        assert not m.is_halted
+        # Fresh monitor accepts the right event again
+        assert isinstance(m.receive("Yes"), Ok)
+
+
+class TestSerialization:
+    """to_dict / from_dict round-trip preserves runtime state by replay."""
+
+    def test_to_dict_returns_trace(self):
+        m = Monitor(FLIGHT_PROTOCOL)
+        m.send("SearchFlights")
+        m.receive("FlightResults")
+        assert m.to_dict() == {"trace": ["!SearchFlights", "?FlightResults"]}
+
+    def test_from_dict_restores_current_state(self):
+        original = Monitor(FLIGHT_PROTOCOL)
+        original.send("SearchFlights")
+        original.receive("FlightResults")
+        original.send("PresentOptions")
+
+        restored = Monitor.from_dict(FLIGHT_PROTOCOL, original.to_dict())
+        assert restored.current_state == original.current_state
+        assert restored.trace == original.trace
+        assert not restored.is_halted
+
+    def test_from_dict_continues_normally(self):
+        original = Monitor(FLIGHT_PROTOCOL)
+        original.send("SearchFlights")
+        original.receive("FlightResults")
+        snapshot = original.to_dict()
+
+        restored = Monitor.from_dict(FLIGHT_PROTOCOL, snapshot)
+        # The next legal event should work just like on `original`.
+        assert isinstance(restored.send("PresentOptions"), Ok)
+        assert restored.trace == [
+            "!SearchFlights", "?FlightResults", "!PresentOptions",
+        ]
+
+    def test_from_dict_replays_violation_and_blocked(self):
+        original = Monitor("!A.?B.end")
+        original.send("A")
+        original.send("Wrong")  # halts
+        original.send("Whatever")  # blocked
+
+        restored = Monitor.from_dict("!A.?B.end", original.to_dict())
+        assert restored.is_halted
+        assert restored.trace == original.trace
+
+    def test_from_dict_with_empty_state_is_fresh_monitor(self):
+        m = Monitor.from_dict(FLIGHT_PROTOCOL, {})
+        assert m.trace == []
+        assert m.current_state == m._automaton.initial_state
+
+    def test_from_dict_rejects_malformed_event(self):
+        with pytest.raises(ValueError, match="not in the expected"):
+            Monitor.from_dict(FLIGHT_PROTOCOL, {"trace": ["malformed"]})
